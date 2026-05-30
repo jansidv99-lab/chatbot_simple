@@ -82,6 +82,11 @@ h1 {
 
 st.title("Chatbot")
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "suggestions" not in st.session_state:
+    st.session_state.suggestions = []
+
 with st.sidebar:
     if st.button("Clear conversation"):
         st.session_state.messages = []
@@ -93,11 +98,6 @@ with st.sidebar:
         st.markdown("**You might want to ask:**")
         for s in st.session_state.suggestions:
             st.markdown(f"- *{s}*")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "suggestions" not in st.session_state:
-    st.session_state.suggestions = []
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
