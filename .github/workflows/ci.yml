@@ -10,6 +10,7 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +32,8 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/chatbot-simple:${{ github.sha }}
 
       - name: Update image tag in values.yaml
-        run: sed -i "s|^  tag:.*|  tag: ${{ github.sha }}|" helm/chatbot/values.yaml
+        run: |
+          sed -i "s|^  tag:.*|  tag: ${{ github.sha }}|" helm/chatbot/values.yaml
 
       - name: Commit and push updated values.yaml
         run: |

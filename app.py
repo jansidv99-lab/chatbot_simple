@@ -10,6 +10,53 @@ MODEL_NAME = os.environ.get("MODEL_NAME", "gemma4:e2b")
 
 client = ollama.Client(host=OLLAMA_HOST)
 
+st.markdown("""
+<style>
+/* ── Background ─────────────────────────────────────────── */
+.stApp {
+    background-color: #0e0e1a;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background-color: #151528;
+    border-right: 1px solid #2a2a4a;
+}
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.stButton > button {
+    background-color: #6c63ff;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+}
+.stButton > button:hover {
+    background-color: #5a52d5;
+    border: none;
+    color: #ffffff;
+}
+.stButton > button:active {
+    background-color: #4a43b5;
+    border: none;
+    color: #ffffff;
+}
+
+/* ── Chat input box ──────────────────────────────────────── */
+[data-testid="stChatInput"] {
+    background-color: #1a1a30 !important;
+    border: 1px solid #3a3a60 !important;
+    border-radius: 12px !important;
+}
+
+/* ── Title ───────────────────────────────────────────────── */
+h1 {
+    color: #7c73ff !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Chatbot")
 
 with st.sidebar:
