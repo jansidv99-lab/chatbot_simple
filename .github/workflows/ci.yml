@@ -3,14 +3,35 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
-  build-and-push:
+
+  validate:
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: ruff check app.py
+
+      - name: Helm lint
+        run: helm lint helm/chatbot
+
+      - name: Test
+        run: pytest tests/ -v
+
+  build-and-push:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
     steps:
       - uses: actions/checkout@v4
         with:

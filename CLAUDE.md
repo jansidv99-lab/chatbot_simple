@@ -60,6 +60,12 @@ kubectl logs deployment/chatbot-chatbot  # Check for errors
 # App is at http://localhost:8501
 ```
 
+### Tests
+```powershell
+.venv\Scripts\Activate.ps1
+pytest tests/ -v
+```
+
 ### Ollama (must be running before the app starts)
 ```powershell
 ollama serve

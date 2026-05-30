@@ -10,6 +10,13 @@ MODEL_NAME = os.environ.get("MODEL_NAME", "gemma4:e2b")
 
 client = ollama.Client(host=OLLAMA_HOST)
 
+
+def stream_response(client, model, messages):
+    stream = client.chat(model=model, messages=messages, stream=True)
+    for chunk in stream:
+        yield chunk["message"]["content"]
+
+
 st.markdown("""
 <style>
 /* ── Background ─────────────────────────────────────────── */
@@ -78,17 +85,7 @@ if prompt := st.chat_input("Message Model..."):
 
     with st.chat_message("assistant"):
         try:
-            stream = client.chat(
-                model=MODEL_NAME,
-                messages=st.session_state.messages,
-                stream=True,
-            )
-
-            def token_generator():
-                for chunk in stream:
-                    yield chunk["message"]["content"]
-
-            response = st.write_stream(token_generator())
+            response = st.write_stream(stream_response(client, MODEL_NAME, st.session_state.messages))
             st.session_state.messages.append({"role": "assistant", "content": response})
 
         except ConnectionError:

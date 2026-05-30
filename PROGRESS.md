@@ -6,3 +6,4 @@
 | 2 | GitHub + CI pipeline | ✅ Complete |
 | 3 | Helm charts + Kubernetes deployment | ✅ Complete |
 | 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
+| 5 | CI pipeline improvements (testing + validation) | ✅ Built — pending CI run validation |
