@@ -85,7 +85,14 @@ st.title("Chatbot")
 with st.sidebar:
     if st.button("Clear conversation"):
         st.session_state.messages = []
+        st.session_state.suggestions = []
         st.rerun()
+
+    if st.session_state.suggestions:
+        st.divider()
+        st.markdown("**You might want to ask:**")
+        for s in st.session_state.suggestions:
+            st.markdown(f"- *{s}*")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -95,11 +102,6 @@ if "suggestions" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-
-if st.session_state.suggestions:
-    st.markdown("**You might want to ask:**")
-    for s in st.session_state.suggestions:
-        st.markdown(f"- *{s}*")
 
 if prompt := st.chat_input("Message Model..."):
     st.session_state.suggestions = []
