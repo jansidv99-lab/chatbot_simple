@@ -28,6 +28,8 @@ spec:
             {{- if .Values.phoenix.enabled }}
             - name: PHOENIX_ENDPOINT
               value: "http://phoenix:6006"
+            - name: PHOENIX_PROJECT
+              value: {{ .Values.phoenix.project | quote }}
             {{- end }}
           livenessProbe:
             httpGet:

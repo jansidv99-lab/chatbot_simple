@@ -14,6 +14,7 @@ ollama:
 phoenix:
   enabled: true
   image: arizephoenix/phoenix:latest
+  project: chatbot
 
 replicaCount: 1
 

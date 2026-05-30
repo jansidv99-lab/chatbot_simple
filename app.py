@@ -9,11 +9,12 @@ load_dotenv()
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemma4:e2b")
 PHOENIX_ENDPOINT = os.environ.get("PHOENIX_ENDPOINT", "")
+PHOENIX_PROJECT = os.environ.get("PHOENIX_PROJECT", "chatbot")
 
 if PHOENIX_ENDPOINT:
     from phoenix.otel import register  # noqa: PLC0415
     from opentelemetry.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
-    register(endpoint=PHOENIX_ENDPOINT)
+    register(endpoint=PHOENIX_ENDPOINT, project_name=PHOENIX_PROJECT)
     OllamaInstrumentor().instrument()
 
 tracer = otel_trace.get_tracer(__name__)
