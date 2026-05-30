@@ -12,7 +12,7 @@ PHOENIX_ENDPOINT = os.environ.get("PHOENIX_ENDPOINT", "")
 
 if PHOENIX_ENDPOINT:
     from phoenix.otel import register  # noqa: PLC0415
-    from openinference.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
+    from opentelemetry.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
     register(endpoint=PHOENIX_ENDPOINT)
     OllamaInstrumentor().instrument()
 
