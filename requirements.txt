@@ -3,3 +3,5 @@ ollama==0.4.4
 python-dotenv==1.0.1
 pytest==8.3.5
 ruff==0.11.12
+arize-phoenix-otel>=0.6.0
+openinference-instrumentation-ollama>=0.1.0

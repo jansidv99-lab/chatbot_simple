@@ -2,11 +2,17 @@ import os
 import ollama
 import streamlit as st
 from dotenv import load_dotenv
-
 load_dotenv()
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemma4:e2b")
+PHOENIX_ENDPOINT = os.environ.get("PHOENIX_ENDPOINT", "")
+
+if PHOENIX_ENDPOINT:
+    from phoenix.otel import register  # noqa: PLC0415
+    from openinference.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
+    register(endpoint=PHOENIX_ENDPOINT)
+    OllamaInstrumentor().instrument()
 
 client = ollama.Client(host=OLLAMA_HOST)
 

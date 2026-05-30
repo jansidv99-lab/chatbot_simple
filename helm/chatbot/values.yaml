@@ -11,6 +11,10 @@ ollama:
   host: http://host.docker.internal:11434
   model: lfm2.5-thinking:latest
 
+phoenix:
+  enabled: true
+  image: arizephoenix/phoenix:latest
+
 replicaCount: 1
 
 resources:

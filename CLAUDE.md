@@ -73,6 +73,20 @@ ollama pull gemma4:e2b       # for local dev
 ollama pull lfm2.5-thinking  # for k8s (matches values.yaml)
 ```
 
+### Phoenix Observability
+```powershell
+# Port-forward UI (run in a dedicated terminal)
+kubectl port-forward svc/phoenix 6006:6006
+# UI at http://localhost:6006 — shows all LLM traces
+
+# Check Phoenix pod
+kubectl get pods -l app=phoenix
+kubectl logs deployment/chatbot-phoenix
+
+# Disable Phoenix (edit values.yaml: phoenix.enabled: false, then upgrade)
+helm.exe upgrade chatbot helm/chatbot
+```
+
 ### ArgoCD (one-time install)
 ```powershell
 kubectl create namespace argocd

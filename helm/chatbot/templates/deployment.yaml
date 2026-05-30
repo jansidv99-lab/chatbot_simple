@@ -25,6 +25,10 @@ spec:
               value: {{ .Values.ollama.host | quote }}
             - name: MODEL_NAME
               value: {{ .Values.ollama.model | quote }}
+            {{- if .Values.phoenix.enabled }}
+            - name: PHOENIX_ENDPOINT
+              value: "http://phoenix:6006"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /_stcore/health

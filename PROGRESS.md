@@ -8,3 +8,4 @@
 | 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
 | 5 | CI pipeline improvements (testing + validation) | ✅ Built — pending CI run validation |
 | 6 | Suggested follow-up questions | ✅ Built — pending live test with Ollama |
+| 7 | LLM observability & evaluation (Arize Phoenix) | ✅ Built — pending deploy validation |
