@@ -1,0 +1,60 @@
+# chatbot simple
+
+## what we are preparing 
+
+A application with interface:
+to provide the chat interface to connect with LLM and chat
+
+## stack
+
+| Layer                         | Choice                             |
+| ----------------------------- | ---------------------------------- |
+| Frontend UI                   | Streamlit                          |
+| LLM Model                     | Gemma4:e2b (7.2 GB)                |
+| LLM Serving                   | Ollama local setup not in Kubernetes(local cluster)|
+| Containerization              | Docker                             |
+| Container Orchestration       | Kubernetes (Local Cluster)         |
+| Kubernetes Package Management | Helm                               |
+| CI/CD Source Control          | GitHub                             |
+| CI/CD Pipeline                | GitHub Actions                     |
+| Image Registry                | Docker Hub        |
+| Operating System              | windows      |
+
+
+## Planning
+- Save all plans to `.agent/plans/` folder
+- Naming convention: `{sequence}.{plan-name}.md` (e.g., `1.auth-setup.md`, `2.document-ingestion.md`)
+- Plans should be detailed enough to execute without ambiguity
+- Each task in the plan must include at least one validation test to verify it works
+- Assess complexity and single-pass feasibility - can an agent realistically complete this in one go?
+- Include a complexity indicator at the top of each plan:
+  - ✅ **Simple** - Single-pass executable, low risk
+  - ⚠️ **Medium** - May need iteration, some complexity
+  - 🔴 **Complex** - Break into sub-plans before executing
+
+
+## Development Flow
+1. **Plan** - Create a detailed plan and save it to `.agent/plans/`
+2. **Build** - Execute the plan to implement the feature
+3. **Validate** - Test and verify the implementation works correctly. Use browser testing where applicable via an appropriate MCP
+4. **Iterate** - Fix any issues found during validation  
+
+## Progress
+Check PROGRESS.md for current module status. Update it as you complete tasks.
+
+## Phase 1
+
+###  Module 1 - chatbot UI implementaion 
+
+
+### Module 2 - git hub and CI pipeline
+
+
+### MOdule 3 - helm charts and deplymnet
+
+
+### Module 4 - LLM( ollama integratio) with Kubernets
+
+
+### Module 5 - ArgoCD for automatic deployment
+
