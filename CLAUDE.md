@@ -67,6 +67,32 @@ ollama pull gemma4:e2b       # for local dev
 ollama pull lfm2.5-thinking  # for k8s (matches values.yaml)
 ```
 
+### ArgoCD (one-time install)
+```powershell
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl wait --for=condition=Ready pods --all -n argocd --timeout=300s
+kubectl apply -f argocd/application.yaml   # deploy the GitOps Application
+```
+
+### ArgoCD (day-to-day)
+```powershell
+# Port-forward UI — run in a dedicated terminal, keep it running
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# UI at https://localhost:8080 (accept self-signed cert)
+
+# Get initial admin password
+$b64 = kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+
+# CLI (download argocd-windows-amd64.exe, put on PATH)
+argocd.exe login localhost:8080 --username admin --insecure
+argocd.exe app get chatbot      # sync + health status
+argocd.exe app list             # all apps at a glance
+argocd.exe app sync chatbot     # force sync without waiting for poll
+argocd.exe app diff chatbot     # diff: Git vs cluster
+```
+
 ## Development Phases
 
 | Module | Description | Status |
@@ -74,8 +100,7 @@ ollama pull lfm2.5-thinking  # for k8s (matches values.yaml)
 | 1 | Chatbot UI (Streamlit) | ✅ Complete |
 | 2 | GitHub + CI pipeline | ✅ Complete |
 | 3 | Helm charts + Kubernetes deployment | ✅ Complete |
-| 4 | LLM (Ollama) integration with Kubernetes | ⬜ Not started |
-| 5 | ArgoCD automatic deployment | ⬜ Not started |
+| 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
 
 Track overall status in `PROGRESS.md`.
 
@@ -132,8 +157,7 @@ Transform vague tasks into verifiable goals before starting.
 |---|---|
 | `engineering:deploy-checklist` | Before every `helm.exe upgrade` |
 | `engineering:debug` | LLM unreachable from pod; unexpected errors |
-| `engineering:system-design` | Before Module 4 — design Ollama in-cluster topology |
-| `engineering:architecture` | ADR decisions (ArgoCD sync strategy, etc.) |
+| `engineering:architecture` | ADR decisions (e.g. ArgoCD sync strategy changes) |
 | `security-review` | Before pushing CI changes; before ArgoCD RBAC setup |
 | `verify` | After any deploy — confirm app loads and chat works |
 | `loop` | Polling a long-running deploy or CI run |

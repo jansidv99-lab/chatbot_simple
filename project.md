@@ -53,8 +53,5 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 ### MOdule 3 - helm charts and kubernetes local server deployment
 
 
-### Module 4 - LLM( ollama integratio) with Kubernets
-
-
-### Module 5 - ArgoCD for automatic deployment
+### Module 4 - ArgoCD for automatic deployment
 
