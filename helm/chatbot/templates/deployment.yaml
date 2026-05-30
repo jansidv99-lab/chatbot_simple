@@ -27,7 +27,7 @@ spec:
               value: {{ .Values.ollama.model | quote }}
             {{- if .Values.phoenix.enabled }}
             - name: PHOENIX_ENDPOINT
-              value: "http://phoenix:6006"
+              value: "http://phoenix:6006/v1/traces"
             - name: PHOENIX_PROJECT
               value: {{ .Values.phoenix.project | quote }}
             {{- end }}

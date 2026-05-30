@@ -12,10 +12,14 @@ PHOENIX_ENDPOINT = os.environ.get("PHOENIX_ENDPOINT", "")
 PHOENIX_PROJECT = os.environ.get("PHOENIX_PROJECT", "chatbot")
 
 if PHOENIX_ENDPOINT:
-    from phoenix.otel import register  # noqa: PLC0415
-    from opentelemetry.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
-    register(endpoint=PHOENIX_ENDPOINT, project_name=PHOENIX_PROJECT)
-    OllamaInstrumentor().instrument()
+    @st.cache_resource
+    def _init_phoenix():
+        from phoenix.otel import register  # noqa: PLC0415
+        from opentelemetry.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
+        register(endpoint=PHOENIX_ENDPOINT, project_name=PHOENIX_PROJECT)
+        OllamaInstrumentor().instrument()
+
+    _init_phoenix()
 
 tracer = otel_trace.get_tracer(__name__)
 client = ollama.Client(host=OLLAMA_HOST)
