@@ -7,3 +7,4 @@
 | 3 | Helm charts + Kubernetes deployment | ✅ Complete |
 | 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
 | 5 | CI pipeline improvements (testing + validation) | ✅ Built — pending CI run validation |
+| 6 | Suggested follow-up questions | ✅ Built — pending live test with Ollama |

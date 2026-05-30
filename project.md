@@ -57,3 +57,5 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 
 ### Module 5 - CI pipeline improvements
 
+
+### Module 6 - Suggested Follow-up Questions - significantly increases user interaction

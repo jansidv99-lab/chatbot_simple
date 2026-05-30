@@ -17,6 +17,22 @@ def stream_response(client, model, messages):
         yield chunk["message"]["content"]
 
 
+def generate_suggestions(client, model, messages):
+    prompt = messages + [{
+        "role": "user",
+        "content": (
+            "Give me 3 short follow-up questions I could ask about this topic. "
+            "Reply with just the questions, one per line, no numbering or bullets."
+        )
+    }]
+    try:
+        result = client.chat(model=model, messages=prompt, stream=False)
+        lines = result["message"]["content"].strip().splitlines()
+        return [l.strip() for l in lines if l.strip()][:3]
+    except Exception:
+        return []
+
+
 st.markdown("""
 <style>
 /* ── Background ─────────────────────────────────────────── */
@@ -73,12 +89,20 @@ with st.sidebar:
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "suggestions" not in st.session_state:
+    st.session_state.suggestions = []
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+if st.session_state.suggestions:
+    st.markdown("**You might want to ask:**")
+    for s in st.session_state.suggestions:
+        st.markdown(f"- *{s}*")
+
 if prompt := st.chat_input("Message Model..."):
+    st.session_state.suggestions = []
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -87,6 +111,7 @@ if prompt := st.chat_input("Message Model..."):
         try:
             response = st.write_stream(stream_response(client, MODEL_NAME, st.session_state.messages))
             st.session_state.messages.append({"role": "assistant", "content": response})
+            st.session_state.suggestions = generate_suggestions(client, MODEL_NAME, st.session_state.messages)
 
         except ConnectionError:
             st.error(f"Ollama is not running on {OLLAMA_HOST}. Start it with: ollama serve")
