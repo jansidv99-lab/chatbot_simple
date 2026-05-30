@@ -55,3 +55,5 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 
 ### Module 4 - ArgoCD for automatic deployment
 
+### Module 5 - CI pipeline improvements
+
