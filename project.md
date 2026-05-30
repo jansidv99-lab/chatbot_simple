@@ -50,7 +50,7 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 ### Module 2 - git hub and CI pipeline
 
 
-### MOdule 3 - helm charts and deplymnet
+### MOdule 3 - helm charts and kubernetes local server deployment
 
 
 ### Module 4 - LLM( ollama integratio) with Kubernets
