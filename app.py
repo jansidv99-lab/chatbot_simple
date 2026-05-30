@@ -2,6 +2,8 @@ import os
 import ollama
 import streamlit as st
 from dotenv import load_dotenv
+from opentelemetry import trace as otel_trace
+
 load_dotenv()
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -14,6 +16,7 @@ if PHOENIX_ENDPOINT:
     register(endpoint=PHOENIX_ENDPOINT)
     OllamaInstrumentor().instrument()
 
+tracer = otel_trace.get_tracer(__name__)
 client = ollama.Client(host=OLLAMA_HOST)
 
 
@@ -116,15 +119,27 @@ if prompt := st.chat_input("Message Model..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        try:
-            response = st.write_stream(stream_response(client, MODEL_NAME, st.session_state.messages))
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.session_state.suggestions = generate_suggestions(client, MODEL_NAME, st.session_state.messages)
+        with tracer.start_as_current_span("chat_turn") as agent_span:
+            agent_span.set_attribute("openinference.span.kind", "AGENT")
+            agent_span.set_attribute("input.value", prompt)
+            try:
+                with tracer.start_as_current_span("stream_response") as chain_span:
+                    chain_span.set_attribute("openinference.span.kind", "CHAIN")
+                    response = st.write_stream(stream_response(client, MODEL_NAME, st.session_state.messages))
+                    chain_span.set_attribute("output.value", response)
 
-        except ConnectionError:
-            st.error(f"Ollama is not running on {OLLAMA_HOST}. Start it with: ollama serve")
-        except ollama.ResponseError as e:
-            if "not found" in str(e).lower():
-                st.error(f"Model not found. Pull it with: ollama pull {MODEL_NAME}")
-            else:
-                st.error(f"Ollama error: {e}")
+                st.session_state.messages.append({"role": "assistant", "content": response})
+
+                with tracer.start_as_current_span("generate_suggestions") as chain_span:
+                    chain_span.set_attribute("openinference.span.kind", "CHAIN")
+                    st.session_state.suggestions = generate_suggestions(client, MODEL_NAME, st.session_state.messages)
+
+                agent_span.set_attribute("output.value", response)
+
+            except ConnectionError:
+                st.error(f"Ollama is not running on {OLLAMA_HOST}. Start it with: ollama serve")
+            except ollama.ResponseError as e:
+                if "not found" in str(e).lower():
+                    st.error(f"Model not found. Pull it with: ollama pull {MODEL_NAME}")
+                else:
+                    st.error(f"Ollama error: {e}")
