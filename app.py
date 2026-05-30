@@ -28,7 +28,7 @@ def generate_suggestions(client, model, messages):
     try:
         result = client.chat(model=model, messages=prompt, stream=False)
         lines = result["message"]["content"].strip().splitlines()
-        return [l.strip() for l in lines if l.strip()][:3]
+        return [line.strip() for line in lines if line.strip()][:3]
     except Exception:
         return []
 
