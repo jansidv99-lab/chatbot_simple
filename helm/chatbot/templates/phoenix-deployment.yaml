@@ -18,6 +18,9 @@ spec:
       containers:
         - name: phoenix
           image: {{ .Values.phoenix.image | quote }}
+          env:
+            - name: PHOENIX_PORT
+              value: "6006"
           ports:
             - containerPort: 6006
             - containerPort: 4317
