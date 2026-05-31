@@ -28,7 +28,7 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 
 Streamlit auto-discovers pages from the `pages/` directory:
 - `app.py` — main chat page; creates an `ollama.Client` at startup, streams responses token-by-token via `st.write_stream`, stores history in `st.session_state.messages`, calls `generate_suggestions` after each reply to populate 3 follow-up questions in the sidebar
-- `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; calls `_init_schema()` once via `@st.cache_resource` on load
+- `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; schema must be created manually via the "Create Tables in DB" button before first use
 
 Ollama always runs on the **Windows host**, never inside Kubernetes:
 - Local dev: `http://localhost:11434` (default)
@@ -38,7 +38,19 @@ Ollama always runs on the **Windows host**, never inside Kubernetes:
 
 `pages/upload.py` → `ingestion/parser.py` → `ingestion/db.py`
 
-The parser expects a Zerodha F&O positions `.xlsx` with a sheet named `F&O`, header row at row 15 (`Symbol` in B15), and data starting at row 16, columns B–L. `validate_file()` checks the sheet name, header cell, and presence of data rows before `parse_positions_excel()` maps columns to a dict. The DB layer uses `psycopg2` with `execute_values` and `ON CONFLICT (trade_date, symbol) DO NOTHING` — duplicate rows are silently skipped.
+Three parsers handle three Zerodha F&O Excel report types, all expecting sheet `F&O`:
+
+| Parser function | Validator | Target table | Key |
+|---|---|---|---|
+| `parse_positions_excel` | `validate_file` | `daily_positions` | `(trade_date, symbol)` |
+| `parse_pnl_excel` | `validate_pnl_file` | `daily_pl` + `daily_charges` | `(trade_date, symbol)` / `date` |
+| `parse_tradebook_excel` | `validate_tradebook_file` | `daily_trades` | `(trade_date, symbol)` |
+
+Tradebook rows are aggregated by `(symbol, trade_date)` before insert: `quantity` is summed, `price` is averaged, `order_execution_time` takes the max. The DB layer uses `psycopg2` with `execute_values` and `ON CONFLICT … DO NOTHING` — all tables silently skip duplicate rows.
+
+**Bulk upload** (`pages/upload.py`) routes by filename substring: `"pnl"` → `daily_pl` + `daily_charges`; `"position"` → `daily_positions`; `"trade"` → `daily_trades`. Files that match none are skipped with a warning.
+
+**Schema creation** is not automatic — the user must click the "Create Tables in DB" button (`ensure_schema()`) before the first upload. `list_tables()` is called on every page load to show which tables exist.
 
 ### Observability / Tracing
 
@@ -86,7 +98,10 @@ pytest tests/test_chat.py::test_yields_tokens -v      # single chat test
 pytest tests/test_ingestion.py -v                     # ingestion tests (requires real fixture file)
 ```
 
-> **Note:** `tests/test_ingestion.py` depends on `raw_data_files/daily_poistions/positions-19-5.xlsx` being present (the directory name "poistions" is a typo — don't rename it; the test path is hardcoded).
+> **Note:** `tests/test_ingestion.py` depends on three real fixture files being present (paths are hardcoded):
+> - `raw_data_files/daily_poistions/positions.xlsx` — directory name "poistions" is a typo; don't rename it
+> - `raw_data_files/daily_pl/pnl.xlsx`
+> - `raw_data_files/trade_book/tradebook.xlsx`
 
 ### Local PostgreSQL (for upload page)
 ```powershell

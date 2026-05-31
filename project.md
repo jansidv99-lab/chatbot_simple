@@ -104,5 +104,49 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 
 
 
+### Module 9 - lets analyse the data with multi agents uisng Langraph
 
+START
+  │
+  ▼
+Supervisor
+  │
+  ▼
+Schema Agent
+  │
+  ▼
+SQL Planner
+  │
+  ▼
+SQL Validator
+  │
+  ├── Invalid ───────────────┐
+  │                          │
+  └── Valid                  │
+        │                    │
+        ▼                    │
+    Execute SQL              │
+        │                    │
+        ▼                    │
+    Data Found?              │
+        │                    │
+   ┌────┴─────┐              │
+   │          │              │
+  Yes        No              │
+   │          │              │
+   ▼          ▼              │
+Analytics   Clarification ───┘
+   │
+   ▼
+Validation
+   │
+ ┌─┴───────────┐
+ │             │
+Pass         Fail
+ │             │
+ ▼             │
+Response       │
+ │             │
+ ▼             │
+END      ◄─────┘
 

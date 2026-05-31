@@ -5,5 +5,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY pages/ pages/
 COPY ingestion/ ingestion/
+COPY agents/ agents/
 EXPOSE 8501
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.headless=true"]
