@@ -31,6 +31,18 @@ spec:
             - name: PHOENIX_PROJECT
               value: {{ .Values.phoenix.project | quote }}
             {{- end }}
+            {{- if .Values.postgres.enabled }}
+            - name: PG_HOST
+              value: "postgres"
+            - name: PG_PORT
+              value: "5432"
+            - name: PG_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: PG_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: PG_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /_stcore/health

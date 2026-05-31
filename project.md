@@ -59,3 +59,21 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 
 
 ### Module 6 - Suggested Follow-up Questions - significantly increases user interaction
+
+### Module 7 - Observibity using 
+
+## Phase 1 completed
+
+## Phase 2 - Data Ingestion flow
+
+## Module 8 -  user upload the excel files from UI to DB
+     1.Basic ingestion (validate → parse → store) , we have multiple tables to be created
+     2.client_id details are not required in any table
+     Table 1 : daily_positions
+     3.schema for the each table will be provided with reference excel file in @raw_data_files , eg : for daily_positions table check the raw_data_files and daily_positions folder
+     4. do not allow duplicate records , make tradeday + symbol as the key for the daily_positions table
+
+
+
+
+

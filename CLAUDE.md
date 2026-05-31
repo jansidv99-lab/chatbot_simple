@@ -18,26 +18,62 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 | Kubernetes Package Management | Helm |
 | CI/CD | GitHub Actions → Docker Hub |
 | Image Registry | Docker Hub (`vamsidv2010/chatbot-simple`) |
+| Observability | Arize Phoenix (in-cluster) — OpenTelemetry + OpenInference conventions |
 | OS | Windows — use `helm.exe` not `helm` (name conflict with a Python script) |
-
+| Backend API                   | Python + FastAPI                   |
+| Agent Orchestration           | LangGraph                          |
+| Database                      | PostgreSQL                         |
 ## Architecture
 
-`app.py` is the entire application — a single Streamlit file. It creates an `ollama.Client` at startup using `OLLAMA_HOST` and `MODEL_NAME` env vars, streams responses token-by-token with `st.write_stream`, and stores conversation history in `st.session_state.messages`.
+`app.py` is the entire application — a single Streamlit file. It creates an `ollama.Client` at startup using env vars, streams responses token-by-token with `st.write_stream`, and stores conversation history in `st.session_state.messages`. After each assistant reply it calls `generate_suggestions` to populate 3 follow-up questions in the sidebar.
 
 Ollama always runs on the **Windows host**, never inside Kubernetes:
 - Local dev: `http://localhost:11434` (default)
 - In-cluster: `http://host.docker.internal:11434` (set in `helm/chatbot/values.yaml`)
 
-CI (`.github/workflows/ci.yml`) triggers on every push to `main`, builds the image, and pushes two tags to Docker Hub: `:latest` and `:<git-sha>`. Requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets.
+### Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
+| `MODEL_NAME` | `gemma4:e2b` | Model to use for chat and suggestions |
+| `PHOENIX_ENDPOINT` | _(empty — disables tracing)_ | OTLP endpoint for Phoenix, e.g. `http://phoenix:6006/v1/traces` |
+| `PHOENIX_PROJECT` | `chatbot` | Phoenix project name for trace grouping |
+| `PG_HOST` | `localhost` | PostgreSQL host (`postgres` in-cluster) |
+| `PG_PORT` | `5432` | PostgreSQL port |
+| `PG_DB` | `chatbot` | PostgreSQL database name |
+| `PG_USER` | `chatbot` | PostgreSQL user |
+| `PG_PASSWORD` | `chatbot123` | PostgreSQL password (dev-only) |
+
+### Observability / Tracing
+
+When `PHOENIX_ENDPOINT` is set, the app instruments itself via `OllamaInstrumentor` and wraps each chat turn in two nested OpenTelemetry spans using OpenInference `span.kind` attributes:
+
+- `chat_turn` (kind=`AGENT`) — outer span covering the full user turn
+  - `stream_response` (kind=`CHAIN`) — spans the streaming LLM call
+  - `generate_suggestions` (kind=`CHAIN`) — spans the follow-up question generation
+
+In-cluster, Phoenix receives traces at `http://phoenix:6006/v1/traces` (the deployment exposes port 4317 for OTLP gRPC but the app uses HTTP on 6006). Phoenix is toggled via `values.yaml: phoenix.enabled`.
+
+### CI Auto-Commit Behavior
+
+After a successful Docker push, CI (`ci.yml`) automatically commits back to `main` updating `helm/chatbot/values.yaml` with the new image SHA tag. Commits from `github-actions[bot]` with `[skip ci]` in the message are this auto-update — not human changes.
 
 ## Common Commands
 
 ### Local development
 ```powershell
-# Activate venv and run the app
 .venv\Scripts\Activate.ps1
 streamlit run app.py
 # App is at http://localhost:8501
+```
+
+### Lint and test
+```powershell
+.venv\Scripts\Activate.ps1
+ruff check app.py          # lint (matches CI)
+pytest tests/ -v           # all tests
+pytest tests/test_chat.py::test_yields_tokens -v  # single test
 ```
 
 ### Docker
@@ -58,12 +94,6 @@ kubectl get pods                         # Verify pod is Running
 kubectl get svc                          # EXTERNAL-IP should be localhost
 kubectl logs deployment/chatbot-chatbot  # Check for errors
 # App is at http://localhost:8501
-```
-
-### Tests
-```powershell
-.venv\Scripts\Activate.ps1
-pytest tests/ -v
 ```
 
 ### Ollama (must be running before the app starts)
@@ -115,23 +145,34 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 ## Development Phases
 
+Track overall status in `PROGRESS.md`.
+
 | Module | Description | Status |
 |---|---|---|
 | 1 | Chatbot UI (Streamlit) | ✅ Complete |
 | 2 | GitHub + CI pipeline | ✅ Complete |
 | 3 | Helm charts + Kubernetes deployment | ✅ Complete |
 | 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
-
-Track overall status in `PROGRESS.md`.
+| 5 | CI pipeline improvements (testing + validation) | ✅ Built — pending CI run validation |
+| 6 | Suggested follow-up questions | ✅ Built — pending live test with Ollama |
+| 7 | LLM observability & evaluation (Arize Phoenix) | ✅ Built — pending deploy validation |
+| 8 | Data ingestion: Excel upload to PostgreSQL | ✅ Built — pending deploy validation |
 
 ## Key Files
 
 | File | Purpose |
 |---|---|
-| `app.py` | Entire Streamlit app |
-| `helm/chatbot/values.yaml` | Image repo, Ollama host, model name, service type |
-| `helm/chatbot/templates/deployment.yaml` | Pod spec; injects `OLLAMA_HOST` and `MODEL_NAME` as env vars |
-| `.github/workflows/ci.yml` | Builds + pushes Docker image on push to `main` |
+| `app.py` | Entire Streamlit chatbot app (chat page) |
+| `pages/upload.py` | Streamlit upload page — Excel ingestion UI |
+| `ingestion/parser.py` | Excel parser: `validate_file()`, `parse_positions_excel()` |
+| `ingestion/db.py` | DB layer: `get_connection()`, `ensure_schema()`, `insert_positions()` |
+| `helm/chatbot/values.yaml` | Image repo/tag (auto-updated by CI), Ollama host, model, Phoenix/Postgres toggles |
+| `helm/chatbot/templates/deployment.yaml` | Pod spec; injects all env vars; conditionally adds Phoenix and Postgres vars |
+| `helm/chatbot/templates/phoenix-deployment.yaml` | Phoenix pod (only rendered when `phoenix.enabled: true`) |
+| `helm/chatbot/templates/postgres-deployment.yaml` | PostgreSQL pod (only rendered when `postgres.enabled: true`) |
+| `helm/chatbot/templates/postgres-service.yaml` | ClusterIP service `postgres:5432` for in-cluster DB access |
+| `.github/workflows/ci.yml` | Lint → test → build/push Docker → auto-commit updated image tag |
+| `argocd/application.yaml` | ArgoCD Application manifest pointing at `helm/chatbot` |
 | `.agents/plans/` | Per-module implementation plans (canonical reference per task) |
 
 ## Planning Conventions

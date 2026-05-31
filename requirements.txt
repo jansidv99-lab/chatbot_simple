@@ -5,3 +5,5 @@ pytest==8.3.5
 ruff==0.11.12
 arize-phoenix-otel>=0.6.0
 opentelemetry-instrumentation-ollama>=0.1.0
+psycopg2-binary==2.9.10
+openpyxl==3.1.5

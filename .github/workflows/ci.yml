@@ -20,7 +20,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Lint
-        run: ruff check app.py
+        run: ruff check app.py pages/ ingestion/
 
       - name: Helm lint
         run: helm lint helm/chatbot

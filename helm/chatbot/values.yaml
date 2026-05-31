@@ -16,6 +16,14 @@ phoenix:
   image: arizephoenix/phoenix:latest
   project: chatbot
 
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  database: chatbot
+  user: chatbot
+  # dev-only plaintext password; refactor to a Kubernetes Secret in a future module
+  password: chatbot123
+
 replicaCount: 1
 
 resources:
