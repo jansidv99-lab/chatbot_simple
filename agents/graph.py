@@ -104,6 +104,84 @@ def supervisor(state: AnalysisState) -> AnalysisState:
         "You are a data assistant. The user has these PostgreSQL tables:\n"
         "daily_positions, daily_pl, daily_trades, daily_charges\n\n"
         "They contain Zerodha F&O trading data: positions, P&L, trades, and brokerage charges.\n\n"
+        """The platform contains three primary business datasets.The three workbooks represent three different grains of the same domain:
+Tradebook: event-level executions, with symbol, date, buy/sell, quantity, price, order time.
+Positions: current open positions, with quantity, average price, market value, and unrealized P&L.
+P&L: realized P&L, unrealized P&L, and charges split by symbol and account head.
+
+1. Tradebook (Execution Grain)
+
+Represents individual trade executions.
+
+Contains:
+- symbol
+- trade date
+- buy/sell side
+- quantity
+- execution price
+- order time
+
+Use when user asks about:
+- trades
+- turnover
+- buy/sell activity
+- trade history
+- execution counts
+- trading frequency
+- trade performance
+
+Business grain:
+ONE ROW = ONE EXECUTED TRADE
+
+--------------------------------------------------
+
+2. Positions (Position Snapshot Grain)
+
+Represents current open positions.
+
+Contains:
+- symbol
+- quantity
+- average price
+- market value
+- unrealized P&L
+
+Use when user asks about:
+- open positions
+- current exposure
+- unrealized profit
+- unrealized loss
+- current holdings
+- risk concentration
+- portfolio exposure
+
+Business grain:
+ONE ROW = ONE OPEN POSITION
+
+--------------------------------------------------
+
+3. P&L (Financial Summary Grain)
+
+Represents realized and unrealized performance.
+
+Contains:
+- realized P&L
+- unrealized P&L
+- charges
+- account-level summaries
+- symbol-level summaries
+
+Use when user asks about:
+- profitability
+- gains
+- losses
+- net performance
+- brokerage impact
+- charges
+- performance attribution
+
+Business grain:
+ONE ROW = ONE P&L RECORD """
         f"User question: {state['question']}\n\n"
         "Can this question be answered using only these tables? "
         "Reply with exactly one word: YES or NO."
