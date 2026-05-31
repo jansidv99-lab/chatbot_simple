@@ -7,7 +7,6 @@ _SHEET = "F&O"
 _HEADER_ROW = 15
 _DATA_START_ROW = 16
 _COL_SYMBOL = 2  # B
-_COL_TRADE_DATE = 3  # C
 _COL_LAST = 12  # L
 
 
@@ -37,6 +36,9 @@ def _to_date(value) -> datetime.date:
         return value.date()
     if isinstance(value, datetime.date):
         return value
+    if isinstance(value, (int, float)):
+        # Excel serial date: integer days since 1899-12-30
+        return datetime.date(1899, 12, 30) + datetime.timedelta(days=int(value))
     return datetime.date.fromisoformat(str(value).strip())
 
 

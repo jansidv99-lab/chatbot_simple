@@ -45,8 +45,10 @@ if uploaded_file is not None:
 
     try:
         conn = get_connection()
-        inserted, skipped = insert_positions(conn, rows)
-        conn.close()
+        try:
+            inserted, skipped = insert_positions(conn, rows)
+        finally:
+            conn.close()
     except Exception as e:
         st.error(f"Database error: {e}")
         st.stop()
