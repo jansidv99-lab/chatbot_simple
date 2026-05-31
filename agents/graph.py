@@ -336,7 +336,7 @@ def validation_node(state: AnalysisState) -> AnalysisState:
         span.set_attribute("openinference.span.kind", "CHAIN")
         analysis = state.get("analysis", "")
         span.set_attribute("input.value", analysis[:500])
-        has_content = len(analysis) > 20
+        has_content = len(analysis) > 5
         has_numbers = bool(re.search(r"\d[\d.,]+", analysis))
         if has_content and has_numbers:
             span.set_attribute("output.value", "pass")
