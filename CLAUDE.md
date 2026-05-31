@@ -10,7 +10,7 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 
 | Layer | Choice |
 |---|---|
-| Frontend UI | Streamlit |
+| Frontend UI | Streamlit (multi-page: `app.py` + `pages/`) |
 | LLM Model | `lfm2.5-thinking:latest` (default in Helm); `gemma4:e2b` (default local) |
 | LLM Serving | Ollama (runs on Windows host, NOT in the cluster) |
 | Containerization | Docker |
@@ -19,19 +19,42 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 | CI/CD | GitHub Actions → Docker Hub |
 | Image Registry | Docker Hub (`vamsidv2010/chatbot-simple`) |
 | Observability | Arize Phoenix (in-cluster) — OpenTelemetry + OpenInference conventions |
-| OS | Windows — use `helm.exe` not `helm` (name conflict with a Python script) |
-| Backend API                   | Python + FastAPI                   |
-| Agent Orchestration           | LangGraph                          |
-| Database                      | PostgreSQL                         |
+| Database | PostgreSQL |
+| OS | Windows — use `helm.exe` not `helm` (name conflict) |
+
 ## Architecture
 
-`app.py` is the entire application — a single Streamlit file. It creates an `ollama.Client` at startup using env vars, streams responses token-by-token with `st.write_stream`, and stores conversation history in `st.session_state.messages`. After each assistant reply it calls `generate_suggestions` to populate 3 follow-up questions in the sidebar.
+### Streamlit Multi-Page App
+
+Streamlit auto-discovers pages from the `pages/` directory:
+- `app.py` — main chat page; creates an `ollama.Client` at startup, streams responses token-by-token via `st.write_stream`, stores history in `st.session_state.messages`, calls `generate_suggestions` after each reply to populate 3 follow-up questions in the sidebar
+- `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; calls `_init_schema()` once via `@st.cache_resource` on load
 
 Ollama always runs on the **Windows host**, never inside Kubernetes:
 - Local dev: `http://localhost:11434` (default)
 - In-cluster: `http://host.docker.internal:11434` (set in `helm/chatbot/values.yaml`)
 
-### Environment Variables
+### Ingestion Pipeline
+
+`pages/upload.py` → `ingestion/parser.py` → `ingestion/db.py`
+
+The parser expects a Zerodha F&O positions `.xlsx` with a sheet named `F&O`, header row at row 15 (`Symbol` in B15), and data starting at row 16, columns B–L. `validate_file()` checks the sheet name, header cell, and presence of data rows before `parse_positions_excel()` maps columns to a dict. The DB layer uses `psycopg2` with `execute_values` and `ON CONFLICT (trade_date, symbol) DO NOTHING` — duplicate rows are silently skipped.
+
+### Observability / Tracing
+
+When `PHOENIX_ENDPOINT` is set, the app instruments itself via `OllamaInstrumentor` and wraps each chat turn in two nested OpenTelemetry spans using OpenInference `span.kind` attributes:
+
+- `chat_turn` (kind=`AGENT`) — outer span covering the full user turn
+  - `stream_response` (kind=`CHAIN`) — spans the streaming LLM call
+  - `generate_suggestions` (kind=`CHAIN`) — spans the follow-up question generation
+
+In-cluster, Phoenix receives traces at `http://phoenix:6006/v1/traces`. Phoenix is toggled via `values.yaml: phoenix.enabled`.
+
+### CI Auto-Commit Behavior
+
+After a successful Docker push, CI (`ci.yml`) automatically commits back to `main` updating `helm/chatbot/values.yaml` with the new image SHA tag. Commits from `github-actions[bot]` with `[skip ci]` in the message are this auto-update — not human changes.
+
+## Environment Variables
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -45,20 +68,6 @@ Ollama always runs on the **Windows host**, never inside Kubernetes:
 | `PG_USER` | `chatbot` | PostgreSQL user |
 | `PG_PASSWORD` | `chatbot123` | PostgreSQL password (dev-only) |
 
-### Observability / Tracing
-
-When `PHOENIX_ENDPOINT` is set, the app instruments itself via `OllamaInstrumentor` and wraps each chat turn in two nested OpenTelemetry spans using OpenInference `span.kind` attributes:
-
-- `chat_turn` (kind=`AGENT`) — outer span covering the full user turn
-  - `stream_response` (kind=`CHAIN`) — spans the streaming LLM call
-  - `generate_suggestions` (kind=`CHAIN`) — spans the follow-up question generation
-
-In-cluster, Phoenix receives traces at `http://phoenix:6006/v1/traces` (the deployment exposes port 4317 for OTLP gRPC but the app uses HTTP on 6006). Phoenix is toggled via `values.yaml: phoenix.enabled`.
-
-### CI Auto-Commit Behavior
-
-After a successful Docker push, CI (`ci.yml`) automatically commits back to `main` updating `helm/chatbot/values.yaml` with the new image SHA tag. Commits from `github-actions[bot]` with `[skip ci]` in the message are this auto-update — not human changes.
-
 ## Common Commands
 
 ### Local development
@@ -71,9 +80,17 @@ streamlit run app.py
 ### Lint and test
 ```powershell
 .venv\Scripts\Activate.ps1
-ruff check app.py          # lint (matches CI)
-pytest tests/ -v           # all tests
-pytest tests/test_chat.py::test_yields_tokens -v  # single test
+ruff check app.py pages/ ingestion/   # lint (matches CI)
+pytest tests/ -v                       # all tests
+pytest tests/test_chat.py::test_yields_tokens -v      # single chat test
+pytest tests/test_ingestion.py -v                     # ingestion tests (requires real fixture file)
+```
+
+> **Note:** `tests/test_ingestion.py` depends on `raw_data_files/daily_poistions/positions-19-5.xlsx` being present (the directory name "poistions" is a typo — don't rename it; the test path is hardcoded).
+
+### Local PostgreSQL (for upload page)
+```powershell
+docker run -d --name pg -e POSTGRES_DB=chatbot -e POSTGRES_USER=chatbot -e POSTGRES_PASSWORD=chatbot123 -p 5432:5432 postgres:16-alpine
 ```
 
 ### Docker
@@ -147,41 +164,13 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 Track overall status in `PROGRESS.md`.
 
-| Module | Description | Status |
-|---|---|---|
-| 1 | Chatbot UI (Streamlit) | ✅ Complete |
-| 2 | GitHub + CI pipeline | ✅ Complete |
-| 3 | Helm charts + Kubernetes deployment | ✅ Complete |
-| 4 | ArgoCD automatic deployment | ✅ Built — pending deploy validation |
-| 5 | CI pipeline improvements (testing + validation) | ✅ Built — pending CI run validation |
-| 6 | Suggested follow-up questions | ✅ Built — pending live test with Ollama |
-| 7 | LLM observability & evaluation (Arize Phoenix) | ✅ Built — pending deploy validation |
-| 8 | Data ingestion: Excel upload to PostgreSQL | ✅ Built — pending deploy validation |
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `app.py` | Entire Streamlit chatbot app (chat page) |
-| `pages/upload.py` | Streamlit upload page — Excel ingestion UI |
-| `ingestion/parser.py` | Excel parser: `validate_file()`, `parse_positions_excel()` |
-| `ingestion/db.py` | DB layer: `get_connection()`, `ensure_schema()`, `insert_positions()` |
-| `helm/chatbot/values.yaml` | Image repo/tag (auto-updated by CI), Ollama host, model, Phoenix/Postgres toggles |
-| `helm/chatbot/templates/deployment.yaml` | Pod spec; injects all env vars; conditionally adds Phoenix and Postgres vars |
-| `helm/chatbot/templates/phoenix-deployment.yaml` | Phoenix pod (only rendered when `phoenix.enabled: true`) |
-| `helm/chatbot/templates/postgres-deployment.yaml` | PostgreSQL pod (only rendered when `postgres.enabled: true`) |
-| `helm/chatbot/templates/postgres-service.yaml` | ClusterIP service `postgres:5432` for in-cluster DB access |
-| `.github/workflows/ci.yml` | Lint → test → build/push Docker → auto-commit updated image tag |
-| `argocd/application.yaml` | ArgoCD Application manifest pointing at `helm/chatbot` |
-| `.agents/plans/` | Per-module implementation plans (canonical reference per task) |
-
 ## Planning Conventions
 
 - Save all plans to `.agents/plans/` using naming `{sequence}.{plan-name}.md` (e.g., `3.helm-k8s.md`)
 - Each plan must include at least one validation test per task
 - Mark complexity at the top: ✅ Simple | ⚠️ Medium | 🔴 Complex
 - 🔴 Complex plans must be broken into sub-plans before executing
-- Custom commands: `.calude/commands/build.md` and `onboarding.md`
+- Custom commands live in `.calude/commands/` (note: directory name is a typo — kept as-is): `/build` executes a plan file, `/onboarding` scans the repo and summarises project state
 
 ## Behavioral Guidelines
 

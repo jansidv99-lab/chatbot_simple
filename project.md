@@ -69,9 +69,38 @@ Check PROGRESS.md for current module status. Update it as you complete tasks.
 ## Module 8 -  user upload the excel files from UI to DB
      1.Basic ingestion (validate → parse → store) , we have multiple tables to be created
      2.client_id details are not required in any table
-     Table 1 : daily_positions
+     3.create these belwo tables
+     Table 1 : daily_positions(raw_data_files\daily_poistions\positions.xlsx)
+     tradeday + symbol as a key for the daily_positions table
+     Table 2 : daily_pl(raw_data_files\daily_pl\pnl.xlsx)
+     tradeday + symbol as a key for the daily_pl table
+     Table 3 : daily_trades(raw_data_files\trade_book\tradebook.xlsx)
+     consider only this columns for table creation - Symbol,Trade Date,Trade Type,Quantity,Price,Order Execution Time
+     Data loading logic - take symbol and trade date as key and aggrgate the other fields as follows
+                     trade type - get first value
+                     Quantity - sum of values
+                     price -  average of values
+                     Order Execution Time - max of values
+
+     Table 4 : daily_charges(raw_data_files\daily_pl\pnl.xlsx)
+     table columns present in pnl.xlsx file:
+     date (key)
+     Brokerage - Z
+     Exchange Transaction Charges - Z
+     Clearing Charges - Z
+     Central GST - Z
+     State GST - Z
+     Integrated GST - Z
+     Securities Transaction Tax - Z
+     SEBI Turnover Fees - Z
+     Stamp Duty - Z
+     IPFT
+     loading loagic - fetch data for all fields from the pnl files
+
      3.schema for the each table will be provided with reference excel file in @raw_data_files , eg : for daily_positions table check the raw_data_files and daily_positions folder
-     4. do not allow duplicate records , make tradeday + symbol as the key for the daily_positions table
+     4. do not allow duplicate records and tables
+     5. provide a button in ui "create tables in DB" , button selection should create the tables in DB
+     6. table session for showing the table list avaialble in the db
 
 
 
