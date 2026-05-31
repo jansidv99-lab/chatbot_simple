@@ -9,7 +9,7 @@ service:
 
 ollama:
   host: http://host.docker.internal:11434
-  model: lfm2.5-thinking:latest
+  model: gemma4:e2b
 
 phoenix:
   enabled: true
