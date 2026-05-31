@@ -194,13 +194,14 @@ ONE ROW = ONE P&L RECORD """
         span.set_attribute("output.value", response)
     if "YES" in response:
         return {**state, "final_response": ""}
-    return {
-        **state,
-        "final_response": (
-            "I can only answer questions about your F&O trading data "
-            "(positions, P&L, trades, charges). Please ask something related to that data."
-        ),
-    }
+    return {**state, "final_response": ""}     
+    # return {
+    #     **state,
+    #     "final_response": (
+    #         "I can only answer questions about your F&O trading data "
+    #         "(positions, P&L, trades, charges). Please ask something related to that data."
+    #     ),
+    # }
 
 
 def schema_agent(state: AnalysisState) -> AnalysisState:
