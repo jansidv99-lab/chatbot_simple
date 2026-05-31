@@ -51,6 +51,74 @@ except Exception as e:
 
 st.divider()
 
+# ── Bulk Upload from Folder ───────────────────────────────────────────────────
+
+st.subheader("Bulk Upload from Folder")
+st.write(
+    "Select multiple Excel files at once (Ctrl+click or Shift+click in the file picker). "
+    "Each file is identified by name: 'positions' → daily_positions, "
+    "'pnl' → daily_pl + daily_charges, 'trade' → daily_trades."
+)
+
+bulk_files = st.file_uploader(
+    "Choose files", type=["xlsx"], accept_multiple_files=True, key="bulk"
+)
+
+if bulk_files:
+    try:
+        conn = get_connection()
+    except Exception as e:
+        st.error(f"Database connection failed: {e}")
+        conn = None
+
+    if conn is not None:
+        try:
+            for uf in bulk_files:
+                name = uf.name.lower()
+                file_bytes = uf.getvalue()
+                st.write(f"**{uf.name}**")
+
+                if "pnl" in name:
+                    try:
+                        validate_pnl_file(uf.name, file_bytes)
+                        pl_rows, charges = parse_pnl_excel(file_bytes)
+                        pl_ins, pl_sk = insert_pl(conn, pl_rows)
+                        ch_ins, ch_sk = insert_charges(conn, charges)
+                        st.success(
+                            f"daily_pl: {pl_ins} inserted, {pl_sk} skipped. "
+                            f"daily_charges: {ch_ins} inserted, {ch_sk} skipped."
+                        )
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+
+                elif "position" in name:
+                    try:
+                        validate_file(uf.name, file_bytes)
+                        rows = parse_positions_excel(file_bytes)
+                        ins, sk = insert_positions(conn, rows)
+                        st.success(f"daily_positions: {ins} inserted, {sk} skipped.")
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+
+                elif "trade" in name:
+                    try:
+                        validate_tradebook_file(uf.name, file_bytes)
+                        rows = parse_tradebook_excel(file_bytes)
+                        ins, sk = insert_trades(conn, rows)
+                        st.success(f"daily_trades: {ins} inserted, {sk} skipped.")
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+
+                else:
+                    st.warning(
+                        "Unrecognized filename — skipped. "
+                        "Expected 'positions', 'pnl', or 'trade' in the name."
+                    )
+        finally:
+            conn.close()
+
+st.divider()
+
 # ── Upload Positions ──────────────────────────────────────────────────────────
 
 st.subheader("Upload Positions")
