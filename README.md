@@ -1,6 +1,6 @@
 # Chatbot Simple
 
-A Streamlit chat UI backed by a locally-running LLM (Ollama), fully containerized, deployed to Kubernetes via Helm, with GitOps automation through ArgoCD and a CI pipeline on GitHub Actions.
+A Streamlit chat UI backed by a locally-running LLM (Ollama), fully containerized, deployed to Kubernetes via Helm, with GitOps automation through ArgoCD, a CI pipeline on GitHub Actions, LLM observability via Arize Phoenix, and a data ingestion pipeline for Zerodha F&O trading data.
 
 ---
 
@@ -31,27 +31,29 @@ Open `http://localhost:8501`. Start chatting.
 
 - **Streaming responses** — tokens appear as they're generated
 - **Conversation history** — full multi-turn context sent to the model each time
-- **Follow-up suggestions** — 2–3 questions automatically suggested after each reply
+- **Follow-up suggestions** — 3 questions automatically suggested after each reply
 - **Clear conversation** — sidebar button resets the session
 - **Graceful errors** — clear messages if Ollama isn't running or the model isn't pulled
+- **LLM observability** — every chat turn traced in Arize Phoenix (spans for streaming + suggestions)
+- **Data ingestion** — upload Zerodha F&O Excel files to PostgreSQL from the browser
 
 ---
 
 ## Configuration
 
-All config is via environment variables. Copy `.env.example` or set them directly:
+All config is via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | URL of the Ollama server |
 | `MODEL_NAME` | `gemma4:e2b` | Model to use for chat and suggestions |
-
-Create a `.env` file at the project root to override locally:
-
-```env
-OLLAMA_HOST=http://localhost:11434
-MODEL_NAME=gemma4:e2b
-```
+| `PHOENIX_ENDPOINT` | _(empty — tracing off)_ | OTLP endpoint, e.g. `http://phoenix:6006/v1/traces` |
+| `PHOENIX_PROJECT` | `chatbot` | Phoenix project name for grouping traces |
+| `PG_HOST` | `localhost` | PostgreSQL host (`postgres` in-cluster) |
+| `PG_PORT` | `5432` | PostgreSQL port |
+| `PG_DB` | `chatbot` | PostgreSQL database name |
+| `PG_USER` | `chatbot` | PostgreSQL user |
+| `PG_PASSWORD` | `chatbot123` | PostgreSQL password (dev-only) |
 
 ---
 
@@ -59,7 +61,7 @@ MODEL_NAME=gemma4:e2b
 
 | Layer | Choice |
 |---|---|
-| UI | Streamlit |
+| UI | Streamlit (multi-page: `app.py` + `pages/`) |
 | LLM serving | Ollama (runs on host, not in cluster) |
 | Container | Docker (`python:3.11-slim`) |
 | Orchestration | Kubernetes — Docker Desktop local cluster |
@@ -67,6 +69,8 @@ MODEL_NAME=gemma4:e2b
 | GitOps | ArgoCD (`argocd/application.yaml`) |
 | CI/CD | GitHub Actions → Docker Hub |
 | Image registry | Docker Hub (`vamsidv2010/chatbot-simple`) |
+| Observability | Arize Phoenix — OpenTelemetry + OpenInference |
+| Database | PostgreSQL 16 |
 
 ---
 
@@ -75,6 +79,14 @@ MODEL_NAME=gemma4:e2b
 ```powershell
 docker build -t chatbot-simple .
 docker run -p 8501:8501 -e OLLAMA_HOST=http://host.docker.internal:11434 chatbot-simple
+```
+
+To also enable PostgreSQL locally:
+
+```powershell
+docker run -d --name pg \
+  -e POSTGRES_DB=chatbot -e POSTGRES_USER=chatbot -e POSTGRES_PASSWORD=chatbot123 \
+  -p 5432:5432 postgres:16-alpine
 ```
 
 ---
@@ -94,25 +106,75 @@ helm.exe upgrade chatbot helm/chatbot
 helm.exe uninstall chatbot
 ```
 
-App is at `http://localhost:8501`. Ollama must be running on the Windows host (`ollama serve`).
+App at `http://localhost:8501`. Ollama must be running on the Windows host (`ollama serve`).
 
-**Key values in `helm/chatbot/values.yaml`:**
+**Key toggles in `helm/chatbot/values.yaml`:**
 
 ```yaml
-image:
-  repository: vamsidv2010/chatbot-simple
-  tag: latest              # overwritten by CI with the git SHA
-
 ollama:
   host: http://host.docker.internal:11434
   model: lfm2.5-thinking:latest
+
+phoenix:
+  enabled: true   # set false to disable tracing
+
+postgres:
+  enabled: true   # set false to disable the DB pod
 ```
+
+**Verify all 3 pods are Running:**
+
+```powershell
+kubectl get pods
+# chatbot-chatbot-<hash>    1/1   Running
+# chatbot-phoenix-<hash>    1/1   Running
+# chatbot-postgres-<hash>   1/1   Running
+```
+
+---
+
+## LLM Observability (Arize Phoenix)
+
+Phoenix collects an OpenTelemetry trace for every chat turn — one outer `AGENT` span covering the full turn, with two nested `CHAIN` spans for the streaming call and the follow-up suggestion generation.
+
+```powershell
+# Port-forward the Phoenix UI
+kubectl port-forward svc/phoenix 6006:6006
+# UI at http://localhost:6006
+```
+
+Tracing is only active when `PHOENIX_ENDPOINT` is set. In-cluster it is automatically set to `http://phoenix:6006/v1/traces` by the Helm chart when `phoenix.enabled: true`.
+
+---
+
+## Data Ingestion (Upload Page)
+
+Navigate to **Upload Data** (`http://localhost:8501/upload`) to load Zerodha F&O Excel files into PostgreSQL.
+
+### Tables
+
+| Table | Source file | Key |
+|---|---|---|
+| `daily_positions` | `positions*.xlsx` (sheet `F&O`, header row 15) | `trade_date + symbol` |
+| `daily_pl` | `pnl*.xlsx` (sheet `F&O`, data from row 39) | `trade_date + symbol` |
+| `daily_charges` | `pnl*.xlsx` (sheet `F&O`, charges rows 24–33) | `date` |
+| `daily_trades` | `tradebook*.xlsx` (sheet `F&O`, header row 15) | `trade_date + symbol` |
+
+`daily_trades` aggregates multiple raw trade rows per symbol+date: first `trade_type`, summed `quantity`, averaged `price`, max `order_execution_time`.
+
+Duplicate rows are silently skipped (`ON CONFLICT DO NOTHING`).
+
+### Usage
+
+1. Click **Create Tables in DB** to create all 4 tables (safe to run repeatedly)
+2. **Bulk Upload from Folder** — select multiple `.xlsx` files at once; each is routed automatically by filename (`positions` / `pnl` / `trade`)
+3. Or use the individual section uploaders below for per-table control
 
 ---
 
 ## GitOps with ArgoCD
 
-ArgoCD watches the `helm/chatbot/` path on `main` and auto-syncs on every change.
+ArgoCD watches `helm/chatbot/` on `main` and auto-syncs on every change.
 
 ### One-time install
 
@@ -131,7 +193,7 @@ kubectl apply -f argocd/application.yaml
 ### Access the UI
 
 ```powershell
-# Run in a dedicated terminal — keep it open
+# Run in a dedicated terminal
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
@@ -167,8 +229,8 @@ Defined in `.github/workflows/ci.yml`. Two jobs:
 
 | Job | Trigger | Steps |
 |---|---|---|
-| `validate` | push + pull_request to `main` | install deps → `ruff` lint → `helm lint` → `pytest` |
-| `build-and-push` | push to `main` only (after validate) | docker build + push → update `image.tag` in `values.yaml` → commit `[skip ci]` |
+| `validate` | push + PR to `main` | install deps → `ruff` lint → `helm lint` → `pytest` |
+| `build-and-push` | push to `main` only | docker build + push → update `image.tag` in `values.yaml` → commit `[skip ci]` |
 
 **Required GitHub secrets:**
 
@@ -186,26 +248,43 @@ Defined in `.github/workflows/ci.yml`. Two jobs:
 pytest tests/ -v
 ```
 
-Tests cover `stream_response()` and `generate_suggestions()` — no running Ollama needed (uses mocks).
+| Test file | Covers |
+|---|---|
+| `tests/test_chat.py` | `stream_response()` and `generate_suggestions()` — Ollama mocked |
+| `tests/test_ingestion.py` | Parser validation, Excel parsing, DB insert logic — DB mocked |
 
 ---
 
 ## Project Structure
 
 ```
-app.py                        # entire Streamlit application
-requirements.txt              # runtime + dev dependencies
-Dockerfile                    # python:3.11-slim image
-helm/chatbot/                 # Helm chart
-  values.yaml                 # image, service, Ollama config
+app.py                        # main chat page (streaming, suggestions, tracing)
+pages/
+  upload.py                   # data ingestion UI (bulk upload + per-table sections)
+ingestion/
+  parser.py                   # validate + parse positions, pnl, tradebook Excel files
+  db.py                       # schema creation, insert functions, list_tables
+requirements.txt
+Dockerfile                    # python:3.11-slim
+helm/chatbot/
+  values.yaml                 # image tag, ollama, phoenix, postgres config
   templates/
-    deployment.yaml
-    service.yaml
+    deployment.yaml           # chatbot pod + env vars
+    service.yaml              # LoadBalancer on 8501
+    postgres-deployment.yaml  # PostgreSQL pod (emptyDir volume)
+    postgres-service.yaml     # ClusterIP named 'postgres' on 5432
+    phoenix-deployment.yaml   # Arize Phoenix pod
+    phoenix-service.yaml      # ClusterIP on 6006 (UI) + 4317 (OTLP)
 argocd/
   application.yaml            # ArgoCD Application CR
 .github/workflows/ci.yml      # GitHub Actions CI
 tests/
-  test_chat.py                # pytest tests
+  test_chat.py
+  test_ingestion.py
+raw_data_files/               # sample Zerodha Excel files (gitignored in production)
+  daily_poistions/positions.xlsx
+  daily_pl/pnl.xlsx
+  trade_book/tradebook.xlsx
 .agents/plans/                # per-module implementation plans
 ```
 
@@ -215,9 +294,11 @@ tests/
 
 | Module | What was built |
 |---|---|
-| 1 | Streamlit chat UI with streaming and history |
+| 1 | Streamlit chat UI with streaming and conversation history |
 | 2 | Dockerfile + GitHub Actions CI (build + push to Docker Hub) |
 | 3 | Helm chart, Kubernetes deployment, LoadBalancer service |
 | 4 | ArgoCD GitOps — auto-deploy on every push to `main` |
-| 5 | CI validate job: lint + helm lint + pytest gating builds |
+| 5 | CI validate job: ruff lint + helm lint + pytest gating builds |
 | 6 | Auto follow-up question suggestions after each response |
+| 7 | LLM observability: Arize Phoenix in-cluster, OpenTelemetry spans |
+| 8 | Data ingestion: Excel upload → PostgreSQL (4 tables, bulk auto-routing) |
