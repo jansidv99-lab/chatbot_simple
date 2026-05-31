@@ -1,7 +1,10 @@
 import pandas as pd
 import streamlit as st
+from opentelemetry import trace as otel_trace
 
 from agents.graph import AnalysisState, graph
+
+tracer = otel_trace.get_tracer(__name__)
 
 st.set_page_config(page_title="F&O Analysis", page_icon="📊")
 st.title("F&O Analysis")
@@ -53,7 +56,11 @@ if question := st.chat_input("Ask about your F&O data…"):
 
     with st.chat_message("assistant"):
         with st.spinner("Analysing…"):
-            result = graph.invoke(initial_state)
+            with tracer.start_as_current_span("fo_analysis") as agent_span:
+                agent_span.set_attribute("openinference.span.kind", "AGENT")
+                agent_span.set_attribute("input.value", question)
+                result = graph.invoke(initial_state)
+                agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
 
         st.markdown(result["final_response"])
 

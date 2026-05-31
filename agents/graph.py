@@ -108,7 +108,12 @@ def supervisor(state: AnalysisState) -> AnalysisState:
         "Can this question be answered using only these tables? "
         "Reply with exactly one word: YES or NO."
     )
-    response = _get_llm().invoke(prompt).content.strip().upper()
+    with tracer.start_as_current_span("supervisor") as span:
+        span.set_attribute("openinference.span.kind", "LLM")
+        span.set_attribute("llm.model_name", os.environ.get("MODEL_NAME", "gemma4:e2b"))
+        span.set_attribute("input.value", state["question"])
+        response = _get_llm().invoke(prompt).content.strip().upper()
+        span.set_attribute("output.value", response)
     if "YES" in response:
         return {**state, "final_response": ""}
     return {
@@ -121,16 +126,21 @@ def supervisor(state: AnalysisState) -> AnalysisState:
 
 
 def schema_agent(state: AnalysisState) -> AnalysisState:
-    try:
-        conn = get_connection()
+    with tracer.start_as_current_span("schema_agent") as span:
+        span.set_attribute("openinference.span.kind", "TOOL")
+        span.set_attribute("tool.name", "list_tables")
+        span.set_attribute("input.value", "fetch available tables and schema")
         try:
-            tables = list_tables(conn)
-        finally:
-            conn.close()
-        table_note = f"Confirmed tables in DB: {', '.join(tables)}" if tables else "Warning: no tables found yet."
-    except Exception as e:
-        table_note = f"Could not connect to DB: {e}"
-    schema_context = f"{_SCHEMA}\n\n{table_note}"
+            conn = get_connection()
+            try:
+                tables = list_tables(conn)
+            finally:
+                conn.close()
+            table_note = f"Confirmed tables in DB: {', '.join(tables)}" if tables else "Warning: no tables found yet."
+        except Exception as e:
+            table_note = f"Could not connect to DB: {e}"
+        schema_context = f"{_SCHEMA}\n\n{table_note}"
+        span.set_attribute("output.value", table_note)
     return {**state, "schema_context": schema_context}
 
 
@@ -144,6 +154,7 @@ def sql_planner(state: AnalysisState) -> AnalysisState:
     )
     with tracer.start_as_current_span("sql_planner") as span:
         span.set_attribute("openinference.span.kind", "LLM")
+        span.set_attribute("llm.model_name", os.environ.get("MODEL_NAME", "gemma4:e2b"))
         span.set_attribute("input.value", state["question"])
         raw = _get_llm().invoke(prompt).content
         sql = _extract_sql(raw)
@@ -153,42 +164,55 @@ def sql_planner(state: AnalysisState) -> AnalysisState:
 
 def sql_validator(state: AnalysisState) -> AnalysisState:
     sql = state["sql_query"]
-    try:
-        _assert_select_only(sql)
-        conn = get_connection()
+    with tracer.start_as_current_span("sql_validator") as span:
+        span.set_attribute("openinference.span.kind", "TOOL")
+        span.set_attribute("tool.name", "sql_explain")
+        span.set_attribute("input.value", sql)
         try:
-            with conn.cursor() as cur:
-                cur.execute("EXPLAIN " + sql)
-        finally:
-            conn.rollback()
-            conn.close()
-        return {**state, "sql_valid": True, "validation_error": ""}
-    except psycopg2.Error as e:
-        return {**state, "sql_valid": False, "validation_error": str(e)}
-    except Exception as e:
-        return {**state, "sql_valid": False, "validation_error": str(e)}
+            _assert_select_only(sql)
+            conn = get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("EXPLAIN " + sql)
+            finally:
+                conn.rollback()
+                conn.close()
+            span.set_attribute("output.value", "valid")
+            return {**state, "sql_valid": True, "validation_error": ""}
+        except psycopg2.Error as e:
+            span.set_attribute("output.value", str(e))
+            return {**state, "sql_valid": False, "validation_error": str(e)}
+        except Exception as e:
+            span.set_attribute("output.value", str(e))
+            return {**state, "sql_valid": False, "validation_error": str(e)}
 
 
 def execute_sql(state: AnalysisState) -> AnalysisState:
-    try:
-        _assert_select_only(state["sql_query"])
-        conn = get_connection()
+    with tracer.start_as_current_span("execute_sql") as span:
+        span.set_attribute("openinference.span.kind", "TOOL")
+        span.set_attribute("tool.name", "postgres_query")
+        span.set_attribute("input.value", state["sql_query"])
         try:
-            with conn.cursor() as cur:
-                cur.execute(state["sql_query"])
-                columns = [desc[0] for desc in cur.description] if cur.description else []
-                rows = [dict(zip(columns, row)) for row in cur.fetchall()]
-        finally:
-            conn.close()
-        return {**state, "query_results": rows, "data_found": len(rows) > 0}
-    except Exception as e:
-        return {
-            **state,
-            "query_results": [],
-            "data_found": False,
-            "validation_error": str(e),
-            "sql_valid": False,
-        }
+            _assert_select_only(state["sql_query"])
+            conn = get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(state["sql_query"])
+                    columns = [desc[0] for desc in cur.description] if cur.description else []
+                    rows = [dict(zip(columns, row)) for row in cur.fetchall()]
+            finally:
+                conn.close()
+            span.set_attribute("output.value", f"{len(rows)} rows returned")
+            return {**state, "query_results": rows, "data_found": len(rows) > 0}
+        except Exception as e:
+            span.set_attribute("output.value", str(e))
+            return {
+                **state,
+                "query_results": [],
+                "data_found": False,
+                "validation_error": str(e),
+                "sql_valid": False,
+            }
 
 
 def clarification_agent(state: AnalysisState) -> AnalysisState:
@@ -204,6 +228,7 @@ def clarification_agent(state: AnalysisState) -> AnalysisState:
     )
     with tracer.start_as_current_span("clarification_agent") as span:
         span.set_attribute("openinference.span.kind", "LLM")
+        span.set_attribute("llm.model_name", os.environ.get("MODEL_NAME", "gemma4:e2b"))
         span.set_attribute("input.value", state["question"])
         raw = _get_llm().invoke(prompt).content
         sql = _extract_sql(raw)
@@ -221,6 +246,7 @@ def analytics_agent(state: AnalysisState) -> AnalysisState:
     )
     with tracer.start_as_current_span("analytics_agent") as span:
         span.set_attribute("openinference.span.kind", "LLM")
+        span.set_attribute("llm.model_name", os.environ.get("MODEL_NAME", "gemma4:e2b"))
         span.set_attribute("input.value", state["question"])
         analysis = _get_llm().invoke(prompt).content.strip()
         span.set_attribute("output.value", analysis)
@@ -228,24 +254,32 @@ def analytics_agent(state: AnalysisState) -> AnalysisState:
 
 
 def validation_node(state: AnalysisState) -> AnalysisState:
-    analysis = state.get("analysis", "")
-    has_content = len(analysis) > 20
-    has_numbers = bool(re.search(r"\d[\d.,]+", analysis))
-    if has_content and has_numbers:
-        return {**state, "analytics_valid": True}
-    return {**state, "analytics_valid": False, "validation_error": "Analysis is too vague or missing numbers."}
+    with tracer.start_as_current_span("validation_node") as span:
+        span.set_attribute("openinference.span.kind", "CHAIN")
+        analysis = state.get("analysis", "")
+        span.set_attribute("input.value", analysis[:500])
+        has_content = len(analysis) > 20
+        has_numbers = bool(re.search(r"\d[\d.,]+", analysis))
+        if has_content and has_numbers:
+            span.set_attribute("output.value", "pass")
+            return {**state, "analytics_valid": True}
+        span.set_attribute("output.value", "fail: too vague or missing numbers")
+        return {**state, "analytics_valid": False, "validation_error": "Analysis is too vague or missing numbers."}
 
 
 def response_formatter(state: AnalysisState) -> AnalysisState:
-    if state.get("analysis"):
-        return {**state, "final_response": state["analysis"]}
-    return {
-        **state,
-        "final_response": (
-            "I was unable to answer your question after several attempts. "
-            "Please try rephrasing or check that the relevant data has been uploaded."
-        ),
-    }
+    with tracer.start_as_current_span("response_formatter") as span:
+        span.set_attribute("openinference.span.kind", "CHAIN")
+        span.set_attribute("input.value", state.get("analysis", "")[:500])
+        if state.get("analysis"):
+            final = state["analysis"]
+        else:
+            final = (
+                "I was unable to answer your question after several attempts. "
+                "Please try rephrasing or check that the relevant data has been uploaded."
+            )
+        span.set_attribute("output.value", final[:500])
+        return {**state, "final_response": final}
 
 
 # ── Conditional edge functions ───────────────────────────────────────────────
