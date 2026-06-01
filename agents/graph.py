@@ -56,7 +56,8 @@ class AnalysisState(TypedDict):
     data_found: bool
     analysis: str
     final_response: str
-    retry_count: int
+    retry_count_sql: int
+    retry_count_analysis: int
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -134,14 +135,13 @@ def supervisor(state: AnalysisState) -> AnalysisState:
         span.set_attribute("output.value", response)
     if "YES" in response:
         return {**state, "final_response": ""}
-    return {**state, "final_response": ""}     
-    # return {
-    #     **state,
-    #     "final_response": (
-    #         "I can only answer questions about your F&O trading data "
-    #         "(positions, P&L, trades, charges). Please ask something related to that data."
-    #     ),
-    # }
+    return {
+        **state,
+        "final_response": (
+            "I can only answer questions about your F&O trading data "
+            "(positions, P&L, trades, charges). Please ask something related to that data."
+        ),
+    }
 
 
 def schema_agent(state: AnalysisState) -> AnalysisState:
@@ -263,7 +263,7 @@ def execute_sql(state: AnalysisState) -> AnalysisState:
 
 
 def clarification_agent(state: AnalysisState) -> AnalysisState:
-    retry_count = state.get("retry_count", 0) + 1
+    retry_count_sql = state.get("retry_count_sql", 0) + 1
     error = state.get("validation_error") or "The query returned no rows."
     prompt = (
         f"Schema:\n{state['schema_context']}\n\n"
@@ -280,16 +280,23 @@ def clarification_agent(state: AnalysisState) -> AnalysisState:
         raw = _get_llm().invoke(prompt).content
         sql = _extract_sql(raw)
         span.set_attribute("output.value", sql)
-    return {**state, "sql_query": sql, "retry_count": retry_count, "sql_valid": False, "validation_error": ""}
+    return {**state, "sql_query": sql, "retry_count_sql": retry_count_sql, "sql_valid": False, "validation_error": ""}
 
 
 def analytics_agent(state: AnalysisState) -> AnalysisState:
+    retry_count_analysis = state.get("retry_count_analysis", 0) + 1
     results_text = _rows_to_text(state["query_results"])
+    feedback = ""
+    if retry_count_analysis > 1 and state.get("validation_error"):
+        feedback = (
+            f"\n\nYour previous analysis was rejected: {state['validation_error']} "
+            "Fix this issue in your response."
+        )
     prompt = (
         f"Question: {state['question']}\n\n"
         f"Query results:\n{results_text}\n\n"
         "Analyse these results and provide a clear, concise answer to the question. "
-        "Include specific numbers. Use markdown formatting."
+        f"Include specific numbers. Use markdown formatting.{feedback}"
     )
     with tracer.start_as_current_span("analytics_agent") as span:
         span.set_attribute("openinference.span.kind", "LLM")
@@ -297,7 +304,7 @@ def analytics_agent(state: AnalysisState) -> AnalysisState:
         span.set_attribute("input.value", state["question"])
         analysis = _get_llm().invoke(prompt).content.strip()
         span.set_attribute("output.value", analysis)
-    return {**state, "analysis": analysis}
+    return {**state, "analysis": analysis, "retry_count_analysis": retry_count_analysis}
 
 
 def validation_node(state: AnalysisState) -> AnalysisState:
@@ -343,13 +350,13 @@ def _route_execute(state: AnalysisState) -> str:
 
 
 def _route_clarification(state: AnalysisState) -> str:
-    return "sql_validator" if state.get("retry_count", 0) < 3 else "response_formatter"
+    return "sql_validator" if state.get("retry_count_sql", 0) < 3 else "response_formatter"
 
 
 def _route_validation(state: AnalysisState) -> str:
     if state.get("analytics_valid"):
         return "response_formatter"
-    return "clarification_agent" if state.get("retry_count", 0) < 3 else "response_formatter"
+    return "analytics_agent" if state.get("retry_count_analysis", 0) < 3 else "response_formatter"
 
 
 # ── Graph ────────────────────────────────────────────────────────────────────

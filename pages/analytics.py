@@ -8,6 +8,18 @@ from utils.state import init_session_state
 
 tracer = otel_trace.get_tracer(__name__)
 
+_NODE_LABELS: dict[str, str] = {
+    "supervisor":          "Routing question…",
+    "schema_agent":        "Fetching schema…",
+    "sql_planner":         "Planning SQL…",
+    "sql_validator":       "Validating SQL…",
+    "execute_sql":         "Executing query…",
+    "clarification_agent": "Refining SQL…",
+    "analytics_agent":     "Analysing results…",
+    "validation_node":     "Checking analysis…",
+    "response_formatter":  "Formatting response…",
+}
+
 st.set_page_config(page_title="F&O Analysis", page_icon="📊")
 st.title("F&O Analysis")
 
@@ -129,16 +141,22 @@ if question := st.chat_input("Ask about your F&O data…"):
         "data_found": False,
         "analysis": "",
         "final_response": "",
-        "retry_count": 0,
+        "retry_count_sql": 0,
+        "retry_count_analysis": 0,
     }
 
     with st.chat_message("assistant"):
-        with st.spinner("Analysing…"):
-            with tracer.start_as_current_span("fo_analysis") as agent_span:
-                agent_span.set_attribute("openinference.span.kind", "AGENT")
-                agent_span.set_attribute("input.value", question)
-                result = graph.invoke(initial_state)
-                agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
+        result = dict(initial_state)
+        with tracer.start_as_current_span("fo_analysis") as agent_span:
+            agent_span.set_attribute("openinference.span.kind", "AGENT")
+            agent_span.set_attribute("input.value", question)
+            with st.status("Starting…", expanded=True) as status_widget:
+                for chunk in graph.stream(initial_state, stream_mode="updates"):
+                    node_name = next(iter(chunk))
+                    result.update(chunk[node_name])
+                    status_widget.update(label=_NODE_LABELS.get(node_name, f"{node_name}…"))
+                status_widget.update(label="Done", state="complete", expanded=False)
+            agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
 
         st.markdown(result["final_response"])
 
