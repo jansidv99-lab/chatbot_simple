@@ -1,9 +1,11 @@
+import time
+
 import pandas as pd
 import streamlit as st
 from opentelemetry import trace as otel_trace
 
 from agents.graph import AnalysisState, graph
-from ingestion.db import get_connection, get_row_counts
+from ingestion.db import get_connection, get_date_ranges, get_row_counts
 from utils.state import init_session_state
 
 tracer = otel_trace.get_tracer(__name__)
@@ -39,7 +41,26 @@ def _fetch_row_counts() -> tuple[dict[str, int | None], str | None]:
         return {}, str(e)
 
 
+@st.cache_data(ttl=30)
+def _fetch_date_ranges() -> dict[str, dict]:
+    try:
+        conn = get_connection()
+        try:
+            return get_date_ranges(conn)
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+
+
+def _word_stream(text: str):
+    for word in text.split():
+        yield word + " "
+        time.sleep(0.025)
+
+
 counts, db_error = _fetch_row_counts()
+date_ranges = _fetch_date_ranges()
 
 _LABELS: dict[str, str] = {
     "daily_positions": "Positions",
@@ -62,6 +83,7 @@ with st.sidebar:
     with col2:
         if st.button("Refresh"):
             _fetch_row_counts.clear()
+            _fetch_date_ranges.clear()
             st.rerun()
 
     st.divider()
@@ -78,6 +100,13 @@ with st.sidebar:
                 st.markdown(f"- {label}: *0 rows (empty)*")
             else:
                 st.markdown(f"- {label}: **{count:,} rows**")
+
+    if date_ranges:
+        st.divider()
+        st.markdown("**Date Coverage**")
+        for tbl, dr in date_ranges.items():
+            label = _LABELS.get(tbl, tbl)
+            st.markdown(f"- {label}: {dr['min']} → {dr['max']}")
 
     st.divider()
     st.markdown(
@@ -158,7 +187,10 @@ if question := st.chat_input("Ask about your F&O data…"):
                 status_widget.update(label="Done", state="complete", expanded=False)
             agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
 
-        st.markdown(result["final_response"])
+        if result.get("query_results"):
+            st.write_stream(_word_stream(result["final_response"]))
+        else:
+            st.markdown(result["final_response"])
 
         if result.get("sql_query"):
             with st.expander("SQL Query"):

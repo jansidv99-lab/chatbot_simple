@@ -2,6 +2,7 @@ import os
 import warnings
 
 import psycopg2
+from psycopg2 import sql as pgsql
 from psycopg2.extras import execute_values
 
 # ── Schema ───────────────────────────────────────────────────────────────────
@@ -183,6 +184,13 @@ def list_tables(conn) -> list[str]:
 
 _KNOWN_TABLES = ("daily_positions", "daily_pl", "daily_trades", "daily_charges")
 
+_TABLE_DATE_COLS: dict[str, str] = {
+    "daily_positions": "trade_date",
+    "daily_pl":        "trade_date",
+    "daily_trades":    "trade_date",
+    "daily_charges":   "date",
+}
+
 
 def get_row_counts(conn) -> dict[str, int | None]:
     """Return row count per known table. None means the table doesn't exist yet."""
@@ -206,6 +214,39 @@ def get_row_counts(conn) -> dict[str, int | None]:
         live: dict[str, int] = dict(cur.fetchall())
 
     return {t: live.get(t) if t in existing else None for t in _KNOWN_TABLES}
+
+
+def get_date_ranges(conn) -> dict[str, dict]:
+    """Return {table: {min: date, max: date}} for tables that have at least one row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name IN %s",
+            (_KNOWN_TABLES,),
+        )
+        existing = {row[0] for row in cur.fetchall()}
+
+    tables_to_query = {t: c for t, c in _TABLE_DATE_COLS.items() if t in existing}
+    if not tables_to_query:
+        return {}
+
+    parts = [
+        pgsql.SQL("SELECT {tname}, MIN({col}), MAX({col}) FROM {tbl}").format(
+            tname=pgsql.Literal(table),
+            col=pgsql.Identifier(date_col),
+            tbl=pgsql.Identifier(table),
+        )
+        for table, date_col in tables_to_query.items()
+    ]
+    with conn.cursor() as cur:
+        cur.execute(pgsql.SQL(" UNION ALL ").join(parts))
+        rows = cur.fetchall()
+
+    return {
+        table: {"min": min_date, "max": max_date}
+        for table, min_date, max_date in rows
+        if min_date and max_date
+    }
 
 
 def get_table_schemas(conn) -> dict[str, list[dict]]:

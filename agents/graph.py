@@ -8,7 +8,7 @@ from langgraph.graph import END, StateGraph
 from opentelemetry import trace as otel_trace
 from typing_extensions import TypedDict
 
-from ingestion.db import get_connection, get_table_schemas
+from ingestion.db import get_connection, get_date_ranges, get_table_schemas
 
 tracer = otel_trace.get_tracer(__name__)
 
@@ -153,6 +153,7 @@ def schema_agent(state: AnalysisState) -> AnalysisState:
             conn = get_connection()
             try:
                 schemas = get_table_schemas(conn)
+                date_ranges = get_date_ranges(conn)
             finally:
                 conn.close()
 
@@ -173,6 +174,13 @@ def schema_agent(state: AnalysisState) -> AnalysisState:
                     lines.append(f"  {col['column_name']}  {col['data_type']}{nullable}{pk_mark}")
                 lines.append("")
             schema_context = "\n".join(lines).strip()
+
+            if date_ranges:
+                dr_lines = ["\nData availability:"]
+                for t, dr in date_ranges.items():
+                    dr_lines.append(f"  {t}: {dr['min']} → {dr['max']}")
+                schema_context += "\n" + "\n".join(dr_lines)
+
             status = f"Fetched schema for tables: {', '.join(schemas.keys())}"
         except Exception as e:
             schema_context = "\n".join(

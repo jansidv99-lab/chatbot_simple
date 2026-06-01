@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from utils.state import init_session_state
@@ -144,17 +145,24 @@ if uploaded_positions is not None:
     except Exception as e:
         st.error(f"Failed to parse file: {e}")
         st.stop()
-    st.info(f"Parsed {len(rows)} rows. Inserting into database…")
-    try:
-        conn = get_connection()
+    dates = [r["trade_date"] for r in rows]
+    st.info(f"**{len(rows)} rows parsed** — {min(dates)} → {max(dates)}")
+    st.dataframe(
+        pd.DataFrame(rows)[["symbol", "trade_date", "open_quantity", "unrealized_profit"]].head(5),
+        use_container_width=True,
+        hide_index=True,
+    )
+    if st.button("Insert into DB", key="btn_positions"):
         try:
-            inserted, skipped = insert_positions(conn, rows)
-        finally:
-            conn.close()
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        st.stop()
-    st.success(f"Done. {inserted} rows inserted, {skipped} duplicates skipped.")
+            conn = get_connection()
+            try:
+                inserted, skipped = insert_positions(conn, rows)
+            finally:
+                conn.close()
+        except Exception as e:
+            st.error(f"Database error: {e}")
+            st.stop()
+        st.success(f"Done. {inserted} rows inserted, {skipped} duplicates skipped.")
 
 st.divider()
 
@@ -180,21 +188,31 @@ if uploaded_pnl is not None:
     except Exception as e:
         st.error(f"Failed to parse file: {e}")
         st.stop()
-    st.info(f"Parsed {len(pl_rows)} P&L rows. Inserting into database…")
-    try:
-        conn = get_connection()
-        try:
-            pl_inserted, pl_skipped = insert_pl(conn, pl_rows)
-            ch_inserted, ch_skipped = insert_charges(conn, charges)
-        finally:
-            conn.close()
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        st.stop()
-    st.success(
-        f"daily_pl: {pl_inserted} rows inserted, {pl_skipped} duplicates skipped. "
-        f"daily_charges: {ch_inserted} row inserted, {ch_skipped} duplicates skipped."
+    dates = [r["trade_date"] for r in pl_rows]
+    st.info(
+        f"**{len(pl_rows)} P&L rows parsed** — {min(dates)} → {max(dates)}"
+        f" · charges date: {charges['date']}"
     )
+    st.dataframe(
+        pd.DataFrame(pl_rows)[["symbol", "trade_date", "buy_value", "sell_value", "realized_pnl"]].head(5),
+        use_container_width=True,
+        hide_index=True,
+    )
+    if st.button("Insert into DB", key="btn_pnl"):
+        try:
+            conn = get_connection()
+            try:
+                pl_inserted, pl_skipped = insert_pl(conn, pl_rows)
+                ch_inserted, ch_skipped = insert_charges(conn, charges)
+            finally:
+                conn.close()
+        except Exception as e:
+            st.error(f"Database error: {e}")
+            st.stop()
+        st.success(
+            f"daily_pl: {pl_inserted} rows inserted, {pl_skipped} duplicates skipped. "
+            f"daily_charges: {ch_inserted} row inserted, {ch_skipped} duplicates skipped."
+        )
 
 st.divider()
 
@@ -220,14 +238,21 @@ if uploaded_tb is not None:
     except Exception as e:
         st.error(f"Failed to parse file: {e}")
         st.stop()
-    st.info(f"Parsed {len(trade_rows)} aggregated rows. Inserting into database…")
-    try:
-        conn = get_connection()
+    dates = [r["trade_date"] for r in trade_rows]
+    st.info(f"**{len(trade_rows)} aggregated rows parsed** — {min(dates)} → {max(dates)}")
+    st.dataframe(
+        pd.DataFrame(trade_rows)[["symbol", "trade_date", "trade_type", "quantity", "price"]].head(5),
+        use_container_width=True,
+        hide_index=True,
+    )
+    if st.button("Insert into DB", key="btn_trades"):
         try:
-            inserted, skipped = insert_trades(conn, trade_rows)
-        finally:
-            conn.close()
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        st.stop()
-    st.success(f"Done. {inserted} rows inserted, {skipped} duplicates skipped.")
+            conn = get_connection()
+            try:
+                inserted, skipped = insert_trades(conn, trade_rows)
+            finally:
+                conn.close()
+        except Exception as e:
+            st.error(f"Database error: {e}")
+            st.stop()
+        st.success(f"Done. {inserted} rows inserted, {skipped} duplicates skipped.")
