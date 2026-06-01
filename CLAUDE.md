@@ -32,6 +32,8 @@ Three pages auto-discovered by Streamlit:
 - `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; schema must be created manually via the "Create Tables in DB" button before first use
 - `pages/analytics.py` — F&O analysis page; accepts natural-language questions, invokes the LangGraph agent pipeline in `agents/graph.py`, and renders the final answer with expandable SQL and raw results
 
+`utils/state.py` defines `init_session_state()` — called at the top of every page to ensure all `st.session_state` keys (`messages`, `suggestions`, `analysis_history`) survive Streamlit page navigation without resetting.
+
 Ollama always runs on the **Windows host**, never inside Kubernetes:
 - Local dev: `http://localhost:11434` (default)
 - In-cluster: `http://host.docker.internal:11434` (set in `helm/chatbot/values.yaml`)
@@ -62,7 +64,7 @@ Key behaviors:
 - `sql_validator` runs `EXPLAIN` (read-only) against PostgreSQL to catch syntax errors; only SELECT queries are permitted
 - `clarification_agent` retries up to 3 times on invalid SQL or empty results
 - `analytics_agent` receives at most 50 rows of query results (truncated by `_rows_to_text` in `graph.py`) to keep LLM context bounded
-- `validation_node` rejects analyses shorter than 5 chars or lacking numbers; sends back to `clarification_agent`
+- `validation_node` rejects analyses shorter than 30 chars (`_MIN_CHARS`), lacking numbers, or matching refusal phrases (`_REFUSAL_RE`); sends back to `clarification_agent`
 - The LLM client (`ChatOllama`) is lazily initialized with `lru_cache` — env vars are read at first call, not at import
 
 ### Ingestion Pipeline
@@ -130,10 +132,11 @@ streamlit run app.py
 ### Lint and test
 ```powershell
 .venv\Scripts\Activate.ps1
-ruff check app.py pages/ ingestion/   # lint (matches CI)
+ruff check app.py pages/ ingestion/   # lint (matches CI — agents/ is NOT linted in CI)
 pytest tests/ -v                       # all tests
 pytest tests/test_chat.py::test_yields_tokens -v      # single chat test
 pytest tests/test_ingestion.py -v                     # ingestion tests (requires real fixture file)
+pytest tests/test_graph.py -v                         # unit tests for _check_analysis validation logic
 ```
 
 > **Note:** `tests/test_ingestion.py` depends on three real fixture files being present (paths are hardcoded):
