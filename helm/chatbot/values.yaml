@@ -1,6 +1,6 @@
 image:
   repository: vamsidv2010/chatbot-simple
-  tag: 9d3d44c08c3e72b487b5e9c6e056dffd14a73d9b
+  tag: 1ce66a1b344353bba174f0647f16af58b0852614
   pullPolicy: IfNotPresent
 
 service:
