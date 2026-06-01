@@ -10,3 +10,6 @@
 | 6 | Suggested follow-up questions | ✅ Built — pending live test with Ollama |
 | 7 | LLM observability & evaluation (Arize Phoenix) | ✅ Built — pending deploy validation |
 | 8 | Data ingestion: Excel upload to PostgreSQL | ✅ Built — pending deploy validation |
+| 9 | Multi-agent F&O analysis (LangGraph) | ✅ Complete |
+| 10 | Agent pipeline hardening (routing, retry, streaming status) | ✅ Complete |
+| 11 | Date-aware analytics, word-reveal streaming, upload preview | ✅ Complete |
