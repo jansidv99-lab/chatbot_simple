@@ -3,26 +3,102 @@ import streamlit as st
 from opentelemetry import trace as otel_trace
 
 from agents.graph import AnalysisState, graph
+from ingestion.db import get_connection, get_row_counts
+from utils.state import init_session_state
 
 tracer = otel_trace.get_tracer(__name__)
 
 st.set_page_config(page_title="F&O Analysis", page_icon="📊")
 st.title("F&O Analysis")
 
-if "analysis_history" not in st.session_state:
-    st.session_state.analysis_history = []
+init_session_state()
+
+# ── DB readiness check ────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=30)
+def _fetch_row_counts() -> tuple[dict[str, int | None], str | None]:
+    try:
+        conn = get_connection()
+        try:
+            return get_row_counts(conn), None
+        finally:
+            conn.close()
+    except Exception as e:
+        return {}, str(e)
+
+
+counts, db_error = _fetch_row_counts()
+
+_LABELS: dict[str, str] = {
+    "daily_positions": "Positions",
+    "daily_pl":        "P&L",
+    "daily_trades":    "Trades",
+    "daily_charges":   "Charges",
+}
+
+tables_exist = any(v is not None for v in counts.values())
+has_data     = any(v is not None and v > 0 for v in counts.values())
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    if st.button("Clear history"):
-        st.session_state.analysis_history = []
-        st.rerun()
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        if st.button("Clear history"):
+            st.session_state.analysis_history = []
+            st.rerun()
+    with col2:
+        if st.button("Refresh"):
+            _fetch_row_counts.clear()
+            st.rerun()
+
+    st.divider()
+    st.markdown("**Data Status**")
+
+    if not tables_exist and not db_error:
+        st.warning("No tables found.")
+    elif tables_exist:
+        for tbl, label in _LABELS.items():
+            count = counts.get(tbl)
+            if count is None:
+                st.markdown(f"- {label}: *table missing*")
+            elif count == 0:
+                st.markdown(f"- {label}: *0 rows (empty)*")
+            else:
+                st.markdown(f"- {label}: **{count:,} rows**")
+
+    st.divider()
     st.markdown(
-        "Ask natural-language questions about your F&O data.\n\n"
         "**Examples:**\n"
         "- What was the total realized PnL by symbol?\n"
         "- Which symbol had the highest unrealized loss?\n"
         "- Show total brokerage charges by date."
     )
+
+# ── Readiness gate ────────────────────────────────────────────────────────────
+
+if db_error:
+    st.error(
+        f"Cannot connect to the database: {db_error}\n\n"
+        "Check that PostgreSQL is running and the `PG_*` environment variables are set correctly."
+    )
+    st.stop()
+
+if not tables_exist:
+    st.warning(
+        "No tables found in the database.  \n"
+        "Go to the **Upload** page, click **Create Tables in DB**, then upload your data files."
+    )
+    st.stop()
+
+if not has_data:
+    st.warning(
+        "Tables exist but all are empty.  \n"
+        "Go to the **Upload** page and upload your Zerodha F&O Excel files before running analysis."
+    )
+    st.stop()
+
+# ── Chat history ──────────────────────────────────────────────────────────────
 
 for entry in st.session_state.analysis_history:
     with st.chat_message("user"):
@@ -35,6 +111,8 @@ for entry in st.session_state.analysis_history:
         if entry.get("results"):
             with st.expander(f"Raw results ({len(entry['results'])} rows)"):
                 st.dataframe(pd.DataFrame(entry["results"]).head(100))
+
+# ── Analysis input ────────────────────────────────────────────────────────────
 
 if question := st.chat_input("Ask about your F&O data…"):
     with st.chat_message("user"):

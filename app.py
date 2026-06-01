@@ -4,6 +4,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from opentelemetry import trace as otel_trace
 
+from utils.state import init_session_state
+
 load_dotenv()
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -46,6 +48,8 @@ def generate_suggestions(client, model, messages):
     except Exception:
         return []
 
+
+init_session_state()
 
 st.markdown("""
 <style>
@@ -95,11 +99,6 @@ h1 {
 """, unsafe_allow_html=True)
 
 st.title("Chatbot")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "suggestions" not in st.session_state:
-    st.session_state.suggestions = []
 
 with st.sidebar:
     if st.button("Clear conversation"):

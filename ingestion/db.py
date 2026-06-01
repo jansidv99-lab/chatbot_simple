@@ -181,6 +181,33 @@ def list_tables(conn) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
+_KNOWN_TABLES = ("daily_positions", "daily_pl", "daily_trades", "daily_charges")
+
+
+def get_row_counts(conn) -> dict[str, int | None]:
+    """Return row count per known table. None means the table doesn't exist yet."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name IN %s",
+            (_KNOWN_TABLES,),
+        )
+        existing = {row[0] for row in cur.fetchall()}
+
+    if not existing:
+        return {t: None for t in _KNOWN_TABLES}
+
+    # Single round-trip: names come from the hardcoded _KNOWN_TABLES tuple, never user input
+    union_sql = " UNION ALL ".join(  # noqa: S608
+        f"SELECT '{t}', COUNT(*) FROM {t}" for t in existing
+    )
+    with conn.cursor() as cur:
+        cur.execute(union_sql)
+        live: dict[str, int] = dict(cur.fetchall())
+
+    return {t: live.get(t) if t in existing else None for t in _KNOWN_TABLES}
+
+
 def get_table_schemas(conn) -> dict[str, list[dict]]:
     with conn.cursor() as cur:
         cur.execute("""

@@ -61,6 +61,26 @@ class AnalysisState(TypedDict):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+_REFUSAL_RE = re.compile(
+    r"\b(cannot|can't|couldn't|unable\s+to|no\s+data|no\s+results?|"
+    r"don't\s+have|not\s+available|sorry|insufficient\s+data)\b",
+    re.IGNORECASE,
+)
+_QUANTITY_RE = re.compile(r"\d+(?:[.,]\d+)?")  # any number, including single digits
+_MIN_CHARS = 30
+
+
+def _check_analysis(analysis: str) -> tuple[bool, str]:
+    text = analysis.strip()
+    if len(text) < _MIN_CHARS:
+        return False, f"Analysis too short ({len(text)} chars) — provide a complete answer with context."
+    if _REFUSAL_RE.search(text):
+        return False, "Analysis signals inability to answer — revise the SQL to retrieve relevant data."
+    if not _QUANTITY_RE.search(text):
+        return False, "Analysis contains no numbers — include specific values from the query results."
+    return True, ""
+
+
 def _assert_select_only(sql: str) -> None:
     first_word = sql.strip().split()[0].upper() if sql.strip() else ""
     if first_word != "SELECT":
@@ -136,6 +156,9 @@ def schema_agent(state: AnalysisState) -> AnalysisState:
             finally:
                 conn.close()
 
+            if not schemas:
+                raise ValueError("No tables found in DB — run 'Create Tables in DB' on the Upload page first.")
+
             lines = []
             for table, columns in schemas.items():
                 desc = _TABLE_DESCRIPTIONS.get(table, "")
@@ -155,7 +178,7 @@ def schema_agent(state: AnalysisState) -> AnalysisState:
             schema_context = "\n".join(
                 f"{t}: {desc}" for t, desc in _TABLE_DESCRIPTIONS.items()
             )
-            status = f"Could not connect to DB ({e}); using static description fallback."
+            status = f"Could not fetch live schema ({e}); using static description fallback."
 
         span.set_attribute("output.value", status)
     return {**state, "schema_context": schema_context}
@@ -282,13 +305,12 @@ def validation_node(state: AnalysisState) -> AnalysisState:
         span.set_attribute("openinference.span.kind", "CHAIN")
         analysis = state.get("analysis", "")
         span.set_attribute("input.value", analysis[:500])
-        has_content = len(analysis) > 5
-        has_numbers = bool(re.search(r"\d[\d.,]+", analysis))
-        if has_content and has_numbers:
+        valid, error = _check_analysis(analysis)
+        if valid:
             span.set_attribute("output.value", "pass")
             return {**state, "analytics_valid": True}
-        span.set_attribute("output.value", "fail: too vague or missing numbers")
-        return {**state, "analytics_valid": False, "validation_error": "Analysis is too vague or missing numbers."}
+        span.set_attribute("output.value", f"fail: {error}")
+        return {**state, "analytics_valid": False, "validation_error": error}
 
 
 def response_formatter(state: AnalysisState) -> AnalysisState:

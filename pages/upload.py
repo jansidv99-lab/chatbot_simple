@@ -1,5 +1,6 @@
 import streamlit as st
 
+from utils.state import init_session_state
 from ingestion.db import (
     ensure_schema,
     get_connection,
@@ -20,6 +21,8 @@ from ingestion.parser import (
 
 st.set_page_config(page_title="Upload Data", page_icon="📤")
 st.title("Upload Data")
+
+init_session_state()
 
 # ── Database ─────────────────────────────────────────────────────────────────
 

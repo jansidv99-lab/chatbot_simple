@@ -57,9 +57,11 @@ supervisor ──────────► schema_agent ──► sql_planner 
 
 Key behaviors:
 - `supervisor` asks the LLM whether the question is answerable from Zerodha F&O tables; the YES/NO denial routing is currently disabled — supervisor always continues to `schema_agent`
-- `sql_planner` always asks for `LIMIT 500`; SQL is extracted from fenced code blocks via regex
+- `schema_agent` fetches live column schema via `get_table_schemas`; falls back to static `_TABLE_DESCRIPTIONS` strings in `graph.py` if the DB is unreachable
+- `sql_planner` adds `LIMIT 500` for row-level queries; aggregations (GROUP BY) may omit it; SQL is extracted from fenced code blocks via regex
 - `sql_validator` runs `EXPLAIN` (read-only) against PostgreSQL to catch syntax errors; only SELECT queries are permitted
 - `clarification_agent` retries up to 3 times on invalid SQL or empty results
+- `analytics_agent` receives at most 50 rows of query results (truncated by `_rows_to_text` in `graph.py`) to keep LLM context bounded
 - `validation_node` rejects analyses shorter than 5 chars or lacking numbers; sends back to `clarification_agent`
 - The LLM client (`ChatOllama`) is lazily initialized with `lru_cache` — env vars are read at first call, not at import
 
