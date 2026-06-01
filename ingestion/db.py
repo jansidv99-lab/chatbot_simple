@@ -181,6 +181,40 @@ def list_tables(conn) -> list[str]:
         return [row[0] for row in cur.fetchall()]
 
 
+def get_table_schemas(conn) -> dict[str, list[dict]]:
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                c.table_name,
+                c.column_name,
+                c.data_type,
+                c.is_nullable,
+                c.ordinal_position,
+                CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN true ELSE false END AS is_primary_key
+            FROM information_schema.columns c
+            LEFT JOIN information_schema.key_column_usage kcu
+                ON c.table_schema = kcu.table_schema
+                AND c.table_name  = kcu.table_name
+                AND c.column_name = kcu.column_name
+            LEFT JOIN information_schema.table_constraints tc
+                ON kcu.constraint_name = tc.constraint_name
+                AND tc.constraint_type = 'PRIMARY KEY'
+            WHERE c.table_schema = 'public'
+            ORDER BY c.table_name, c.ordinal_position
+        """)
+        rows = cur.fetchall()
+
+    result: dict[str, list[dict]] = {}
+    for table_name, col_name, data_type, is_nullable, _, is_pk in rows:
+        result.setdefault(table_name, []).append({
+            "column_name": col_name,
+            "data_type": data_type,
+            "is_nullable": is_nullable == "YES",
+            "is_primary_key": bool(is_pk),
+        })
+    return result
+
+
 # ── Insert functions ─────────────────────────────────────────────────────────
 
 def insert_positions(conn, rows: list[dict]) -> tuple[int, int]:

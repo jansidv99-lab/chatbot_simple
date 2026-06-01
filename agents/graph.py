@@ -8,7 +8,7 @@ from langgraph.graph import END, StateGraph
 from opentelemetry import trace as otel_trace
 from typing_extensions import TypedDict
 
-from ingestion.db import get_connection, list_tables
+from ingestion.db import get_connection, get_table_schemas
 
 tracer = otel_trace.get_tracer(__name__)
 
@@ -21,35 +21,26 @@ def _get_llm() -> ChatOllama:
         model=os.environ.get("MODEL_NAME", "gemma4:e2b"),
     )
 
-# ── Static schema context ────────────────────────────────────────────────────
+# ── Table business descriptions (static) ────────────────────────────────────
 
-_SCHEMA = """
-Tables available in PostgreSQL (schema: public):
-
-daily_positions (PK: trade_date, symbol)
-  symbol VARCHAR, trade_date DATE, segment VARCHAR, position_type VARCHAR,
-  open_quantity NUMERIC, open_average NUMERIC, open_value NUMERIC,
-  previous_close_price NUMERIC, closing_value NUMERIC,
-  unrealized_profit NUMERIC, unrealized_profit_pct NUMERIC
-
-daily_pl (PK: trade_date, symbol)
-  symbol VARCHAR, trade_date DATE, quantity NUMERIC,
-  buy_value NUMERIC, sell_value NUMERIC,
-  realized_pnl NUMERIC, realized_pnl_pct NUMERIC,
-  previous_closing_price NUMERIC, open_quantity NUMERIC,
-  open_quantity_type VARCHAR, open_value NUMERIC,
-  unrealized_pnl NUMERIC, unrealized_pnl_pct NUMERIC
-
-daily_trades (PK: trade_date, symbol)
-  symbol VARCHAR, trade_date DATE, trade_type VARCHAR,
-  quantity NUMERIC, price NUMERIC, order_execution_time TIMESTAMP
-
-daily_charges (PK: date)
-  date DATE, brokerage NUMERIC, exchange_transaction_charges NUMERIC,
-  clearing_charges NUMERIC, central_gst NUMERIC, state_gst NUMERIC,
-  integrated_gst NUMERIC, securities_transaction_tax NUMERIC,
-  sebi_turnover_fees NUMERIC, stamp_duty NUMERIC, ipft NUMERIC
-""".strip()
+_TABLE_DESCRIPTIONS = {
+    "daily_positions": (
+        "Open F&O positions snapshot. One row per open position (symbol + date). "
+        "Use for: current exposure, unrealized P&L, holdings, risk concentration."
+    ),
+    "daily_pl": (
+        "Realized and unrealized P&L summary per symbol per day. "
+        "Use for: profitability, gains/losses, net performance, performance attribution."
+    ),
+    "daily_trades": (
+        "Aggregated trade executions per symbol per day (quantity summed, price averaged, "
+        "execution time = max). Use for: trade history, turnover, buy/sell activity, trading frequency."
+    ),
+    "daily_charges": (
+        "Brokerage and regulatory charges per day (one row per date). "
+        "Use for: brokerage impact, total cost, charge breakdown."
+    ),
+}
 
 # ── State ────────────────────────────────────────────────────────────────────
 
@@ -101,87 +92,16 @@ def _rows_to_text(rows: list) -> str:
 
 def supervisor(state: AnalysisState) -> AnalysisState:
     prompt = (
-        "You are a data assistant. The user has these PostgreSQL tables:\n"
-        "daily_positions, daily_pl, daily_trades, daily_charges\n\n"
-        "They contain Zerodha F&O trading data: positions, P&L, trades, and brokerage charges.\n\n"
-        """The platform contains three primary business datasets.The three workbooks represent three different grains of the same domain:
-Tradebook: event-level executions, with symbol, date, buy/sell, quantity, price, order time.
-Positions: current open positions, with quantity, average price, market value, and unrealized P&L.
-P&L: realized P&L, unrealized P&L, and charges split by symbol and account head.
-
-1. Tradebook (Execution Grain)
-
-Represents individual trade executions.
-
-Contains:
-- symbol
-- trade date
-- buy/sell side
-- quantity
-- execution price
-- order time
-
-Use when user asks about:
-- trades
-- turnover
-- buy/sell activity
-- trade history
-- execution counts
-- trading frequency
-- trade performance
-
-Business grain:
-ONE ROW = ONE EXECUTED TRADE
-
---------------------------------------------------
-
-2. Positions (Position Snapshot Grain)
-
-Represents current open positions.
-
-Contains:
-- symbol
-- quantity
-- average price
-- market value
-- unrealized P&L
-
-Use when user asks about:
-- open positions
-- current exposure
-- unrealized profit
-- unrealized loss
-- current holdings
-- risk concentration
-- portfolio exposure
-
-Business grain:
-ONE ROW = ONE OPEN POSITION
-
---------------------------------------------------
-
-3. P&L (Financial Summary Grain)
-
-Represents realized and unrealized performance.
-
-Contains:
-- realized P&L
-- unrealized P&L
-- charges
-- account-level summaries
-- symbol-level summaries
-
-Use when user asks about:
-- profitability
-- gains
-- losses
-- net performance
-- brokerage impact
-- charges
-- performance attribution
-
-Business grain:
-ONE ROW = ONE P&L RECORD """
+        "You are a routing agent for a Zerodha F&O trading analytics system.\n\n"
+        "The system has exactly these four PostgreSQL tables:\n"
+        "  daily_positions  — open position snapshots per symbol per day "
+        "(unrealized P&L, exposure, quantity, average price)\n"
+        "  daily_pl         — realized and unrealized P&L per symbol per day "
+        "(buy/sell values, realized PnL, unrealized PnL)\n"
+        "  daily_trades     — trade executions aggregated per symbol per day "
+        "(trade type, quantity, price, execution time)\n"
+        "  daily_charges    — brokerage and regulatory charges per day "
+        "(brokerage, GST, STT, stamp duty, SEBI fees)\n\n"
         f"User question: {state['question']}\n\n"
         "Can this question be answered using only these tables? "
         "Reply with exactly one word: YES or NO."
@@ -207,19 +127,37 @@ ONE ROW = ONE P&L RECORD """
 def schema_agent(state: AnalysisState) -> AnalysisState:
     with tracer.start_as_current_span("schema_agent") as span:
         span.set_attribute("openinference.span.kind", "TOOL")
-        span.set_attribute("tool.name", "list_tables")
-        span.set_attribute("input.value", "fetch available tables and schema")
+        span.set_attribute("tool.name", "get_table_schemas")
+        span.set_attribute("input.value", "fetch full column schema from DB")
         try:
             conn = get_connection()
             try:
-                tables = list_tables(conn)
+                schemas = get_table_schemas(conn)
             finally:
                 conn.close()
-            table_note = f"Confirmed tables in DB: {', '.join(tables)}" if tables else "Warning: no tables found yet."
+
+            lines = []
+            for table, columns in schemas.items():
+                desc = _TABLE_DESCRIPTIONS.get(table, "")
+                pk_cols = [c["column_name"] for c in columns if c["is_primary_key"]]
+                pk_str = f"PK: {', '.join(pk_cols)}" if pk_cols else "no PK"
+                lines.append(f"{table} ({pk_str})")
+                if desc:
+                    lines.append(f"  Description: {desc}")
+                for col in columns:
+                    nullable = "" if col["is_nullable"] else " NOT NULL"
+                    pk_mark = " [PK]" if col["is_primary_key"] else ""
+                    lines.append(f"  {col['column_name']}  {col['data_type']}{nullable}{pk_mark}")
+                lines.append("")
+            schema_context = "\n".join(lines).strip()
+            status = f"Fetched schema for tables: {', '.join(schemas.keys())}"
         except Exception as e:
-            table_note = f"Could not connect to DB: {e}"
-        schema_context = f"{_SCHEMA}\n\n{table_note}"
-        span.set_attribute("output.value", table_note)
+            schema_context = "\n".join(
+                f"{t}: {desc}" for t, desc in _TABLE_DESCRIPTIONS.items()
+            )
+            status = f"Could not connect to DB ({e}); using static description fallback."
+
+        span.set_attribute("output.value", status)
     return {**state, "schema_context": schema_context}
 
 
@@ -227,8 +165,15 @@ def sql_planner(state: AnalysisState) -> AnalysisState:
     prompt = (
         f"Schema:\n{state['schema_context']}\n\n"
         f"Question: {state['question']}\n\n"
-        "Write a single read-only PostgreSQL SELECT query that answers this question. "
-        "Always include LIMIT 500 unless the question explicitly asks for all rows. "
+        "Write a single read-only PostgreSQL SELECT query that answers this question.\n"
+        "Rules:\n"
+        "1. Use only column names exactly as listed in the schema above — do not invent columns.\n"
+        "2. For aggregation questions (totals, averages, rankings, counts), use GROUP BY with "
+        "the appropriate aggregate function (SUM, AVG, COUNT, MAX, MIN).\n"
+        "3. For row-level or listing queries, add LIMIT 500. "
+        "For aggregations that naturally return few rows, LIMIT may be omitted.\n"
+        "4. For ranking questions (top N, worst N), use ORDER BY with the relevant column and "
+        "include LIMIT N.\n"
         "Return ONLY the SQL inside a ```sql``` code block. No explanation."
     )
     with tracer.start_as_current_span("sql_planner") as span:

@@ -13,6 +13,7 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 | Frontend UI | Streamlit (multi-page: `app.py` + `pages/`) |
 | LLM Model | `lfm2.5-thinking:latest` (default in Helm); `gemma4:e2b` (default local) |
 | LLM Serving | Ollama (runs on Windows host, NOT in the cluster) |
+| Agent Framework | LangGraph (`agents/graph.py`) + LangChain-Ollama |
 | Containerization | Docker |
 | Container Orchestration | Kubernetes (Docker Desktop local cluster) |
 | Kubernetes Package Management | Helm |
@@ -26,13 +27,41 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 
 ### Streamlit Multi-Page App
 
-Streamlit auto-discovers pages from the `pages/` directory:
+Three pages auto-discovered by Streamlit:
 - `app.py` — main chat page; creates an `ollama.Client` at startup, streams responses token-by-token via `st.write_stream`, stores history in `st.session_state.messages`, calls `generate_suggestions` after each reply to populate 3 follow-up questions in the sidebar
 - `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; schema must be created manually via the "Create Tables in DB" button before first use
+- `pages/analytics.py` — F&O analysis page; accepts natural-language questions, invokes the LangGraph agent pipeline in `agents/graph.py`, and renders the final answer with expandable SQL and raw results
 
 Ollama always runs on the **Windows host**, never inside Kubernetes:
 - Local dev: `http://localhost:11434` (default)
 - In-cluster: `http://host.docker.internal:11434` (set in `helm/chatbot/values.yaml`)
+
+### LangGraph Agent Pipeline (`agents/graph.py`)
+
+`pages/analytics.py` → `agents/graph.py` → PostgreSQL
+
+A LangGraph `StateGraph` with `AnalysisState` TypedDict drives a multi-step F&O data analysis pipeline:
+
+```
+supervisor ──────────► schema_agent ──► sql_planner ──► sql_validator
+                                                              │
+                                                   (valid)──► execute_sql
+                                                   (invalid)─► clarification_agent ─► (retry ≤3)
+                                                                                          │
+                                               analytics_agent ◄──(data found)────────────┘
+                                                      │
+                                               validation_node
+                                                      │
+                                            response_formatter ──► END
+```
+
+Key behaviors:
+- `supervisor` asks the LLM whether the question is answerable from Zerodha F&O tables; the YES/NO denial routing is currently disabled — supervisor always continues to `schema_agent`
+- `sql_planner` always asks for `LIMIT 500`; SQL is extracted from fenced code blocks via regex
+- `sql_validator` runs `EXPLAIN` (read-only) against PostgreSQL to catch syntax errors; only SELECT queries are permitted
+- `clarification_agent` retries up to 3 times on invalid SQL or empty results
+- `validation_node` rejects analyses shorter than 5 chars or lacking numbers; sends back to `clarification_agent`
+- The LLM client (`ChatOllama`) is lazily initialized with `lru_cache` — env vars are read at first call, not at import
 
 ### Ingestion Pipeline
 
@@ -54,11 +83,18 @@ Tradebook rows are aggregated by `(symbol, trade_date)` before insert: `quantity
 
 ### Observability / Tracing
 
-When `PHOENIX_ENDPOINT` is set, the app instruments itself via `OllamaInstrumentor` and wraps each chat turn in two nested OpenTelemetry spans using OpenInference `span.kind` attributes:
+When `PHOENIX_ENDPOINT` is set, the app instruments itself via `OllamaInstrumentor` and wraps each chat turn in nested OpenTelemetry spans using OpenInference `span.kind` attributes.
 
+`app.py` span tree:
 - `chat_turn` (kind=`AGENT`) — outer span covering the full user turn
   - `stream_response` (kind=`CHAIN`) — spans the streaming LLM call
   - `generate_suggestions` (kind=`CHAIN`) — spans the follow-up question generation
+
+`agents/graph.py` span tree (per analytics query):
+- `fo_analysis` (kind=`AGENT`) — set in `pages/analytics.py`
+  - One span per graph node: `supervisor`, `schema_agent`, `sql_planner`, `sql_validator`, `execute_sql`, `clarification_agent`, `analytics_agent`, `validation_node`, `response_formatter`
+
+Node span kinds follow OpenInference conventions: LLM calls → `LLM`, DB/tool calls → `TOOL`, routing/formatting → `CHAIN`.
 
 In-cluster, Phoenix receives traces at `http://phoenix:6006/v1/traces`. Phoenix is toggled via `values.yaml: phoenix.enabled`.
 
@@ -71,7 +107,7 @@ After a successful Docker push, CI (`ci.yml`) automatically commits back to `mai
 | Variable | Default | Purpose |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `MODEL_NAME` | `gemma4:e2b` | Model to use for chat and suggestions |
+| `MODEL_NAME` | `gemma4:e2b` | Model to use for chat, suggestions, and agent nodes |
 | `PHOENIX_ENDPOINT` | _(empty — disables tracing)_ | OTLP endpoint for Phoenix, e.g. `http://phoenix:6006/v1/traces` |
 | `PHOENIX_PROJECT` | `chatbot` | Phoenix project name for trace grouping |
 | `PG_HOST` | `localhost` | PostgreSQL host (`postgres` in-cluster) |
@@ -103,7 +139,7 @@ pytest tests/test_ingestion.py -v                     # ingestion tests (require
 > - `raw_data_files/daily_pl/pnl.xlsx`
 > - `raw_data_files/trade_book/tradebook.xlsx`
 
-### Local PostgreSQL (for upload page)
+### Local PostgreSQL (for upload and analytics pages)
 ```powershell
 docker run -d --name pg -e POSTGRES_DB=chatbot -e POSTGRES_USER=chatbot -e POSTGRES_PASSWORD=chatbot123 -p 5432:5432 postgres:16-alpine
 ```
