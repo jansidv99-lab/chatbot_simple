@@ -1,60 +1,84 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock
-import ollama
 
-from app import stream_response, generate_suggestions
+from app import generate_suggestions, stream_response
 
 
-def _make_chunk(content):
-    return {"message": {"content": content}}
+def _make_httpx_mock(sse_lines: list[str], status_code: int = 200):
+    """Build a mock that satisfies:
+       with httpx.Client(...) as client:
+           with client.stream(...) as resp:
+    """
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.iter_lines.return_value = iter(sse_lines)
+
+    stream_ctx = MagicMock()
+    stream_ctx.__enter__ = MagicMock(return_value=mock_resp)
+    stream_ctx.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.stream.return_value = stream_ctx
+
+    client_ctx = MagicMock()
+    client_ctx.__enter__ = MagicMock(return_value=mock_client)
+    client_ctx.__exit__ = MagicMock(return_value=False)
+
+    return client_ctx
+
+
+_MESSAGES = [{"role": "user", "content": "hello"}]
 
 
 def test_yields_tokens():
-    client = MagicMock()
-    client.chat.return_value = iter([_make_chunk("Hello"), _make_chunk(" world")])
-    result = list(stream_response(client, "model", []))
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock(["data: Hello", "data:  world"])
+        result = list(stream_response(_MESSAGES, "tok"))
     assert result == ["Hello", " world"]
 
 
 def test_empty_stream():
-    client = MagicMock()
-    client.chat.return_value = iter([])
-    result = list(stream_response(client, "model", []))
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock([])
+        result = list(stream_response(_MESSAGES, "tok"))
     assert result == []
 
 
 def test_connection_error_propagates():
-    client = MagicMock()
-    client.chat.side_effect = ConnectionError("Ollama not running")
-    with pytest.raises(ConnectionError):
-        list(stream_response(client, "model", []))
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock(["data: x"], status_code=401)
+        with pytest.raises(ConnectionError):
+            list(stream_response(_MESSAGES, "tok"))
 
 
-def test_model_not_found_propagates():
-    client = MagicMock()
-    client.chat.side_effect = ollama.ResponseError("model not found")
-    with pytest.raises(ollama.ResponseError):
-        list(stream_response(client, "model", []))
+def test_non_sse_lines_filtered():
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock(["data: Hello", ": keep-alive", "data:  world"])
+        result = list(stream_response(_MESSAGES, "tok"))
+    assert result == ["Hello", " world"]
 
 
 # ── generate_suggestions ─────────────────────────────────────────────────────
 
 def test_suggestions_returns_list():
-    client = MagicMock()
-    client.chat.return_value = {"message": {"content": "What is X?\nHow does Y work?\nWhy is Z important?"}}
-    result = generate_suggestions(client, "model", [])
+    reply = "What is X?\nHow does Y work?\nWhy is Z important?"
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock([f"data: {reply}"])
+        result = generate_suggestions(_MESSAGES, "tok")
     assert result == ["What is X?", "How does Y work?", "Why is Z important?"]
 
 
 def test_suggestions_empty_on_error():
-    client = MagicMock()
-    client.chat.side_effect = ConnectionError("Ollama down")
-    result = generate_suggestions(client, "model", [])
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.side_effect = Exception("API down")
+        result = generate_suggestions(_MESSAGES, "tok")
     assert result == []
 
 
 def test_suggestions_strips_blank_lines():
-    client = MagicMock()
-    client.chat.return_value = {"message": {"content": "Question one?\n\n\nQuestion two?\n"}}
-    result = generate_suggestions(client, "model", [])
+    reply = "Question one?\n\n\nQuestion two?\n"
+    with patch("app.httpx.Client") as mock_cls:
+        mock_cls.return_value = _make_httpx_mock([f"data: {reply}"])
+        result = generate_suggestions(_MESSAGES, "tok")
     assert result == ["Question one?", "Question two?"]

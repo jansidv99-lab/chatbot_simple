@@ -25,12 +25,37 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 
 ## Architecture
 
+### FastAPI Backend (`api/`)
+
+Streamlit pages communicate with a FastAPI service (`api/main.py`) rather than calling LangGraph or Ollama directly. This gives the app a proper HTTP API contract with JWT middleware enforcement and structured error handling.
+
+```
+Streamlit pages  →  FastAPI (http://localhost:8000)  →  LangGraph / Ollama / PostgreSQL
+```
+
+Endpoints:
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `POST` | `/auth/register` | No | Create a new user account |
+| `POST` | `/auth/login` | No (OAuth2 form) | Return `access_token` + `refresh_token` |
+| `POST` | `/chat/` | Bearer JWT | Stream chat tokens as SSE (`text/event-stream`) |
+| `POST` | `/analytics/` | Bearer JWT | Run LangGraph pipeline, return JSON result |
+| `GET` | `/health` | No | Liveness check |
+| `GET` | `/docs` | No | Swagger UI |
+
+Key design choices:
+- Route handlers use `def` (not `async def`) so LangGraph and psycopg2 (both sync) run in Uvicorn's thread pool without blocking the event loop.
+- `api/deps.py` provides `get_current_user()` — a FastAPI `Depends` that decodes the Bearer token and raises `401` on failure.
+- `api/routers/analytics.py` calls `graph.invoke()` (full run) and JSON-serialises the result, normalising non-serialisable types (dates, etc.) via a `json.dumps(default=str)` round-trip.
+- `api/routers/chat.py` returns a `StreamingResponse` with `media_type="text/event-stream"`; each Ollama token is emitted as `data: <token>\n\n`. Streamlit consumes this with `httpx.Client().stream()`, stripping the `data: ` prefix before yielding to `st.write_stream`.
+
 ### Streamlit Multi-Page App
 
-Three pages auto-discovered by Streamlit:
-- `app.py` — main chat page; creates an `ollama.Client` at startup, streams responses token-by-token via `st.write_stream`, stores history in `st.session_state.messages`, calls `generate_suggestions` after each reply to populate 3 follow-up questions in the sidebar
-- `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; schema must be created manually via the "Create Tables in DB" button before first use
-- `pages/analytics.py` — F&O analysis page; accepts natural-language questions, invokes the LangGraph agent pipeline in `agents/graph.py`, and renders the final answer with expandable SQL and raw results. The sidebar shows row counts and date coverage fetched with `@st.cache_data(ttl=30)` — a "Refresh" button clears the cache. When query results exist, the response is rendered with `_word_stream` (word-reveal at 25 ms/word); otherwise falls back to `st.markdown`. Each graph node update is surfaced via `st.status` with human-readable labels from `_NODE_LABELS`.
+Four pages auto-discovered by Streamlit (plus `pages/login.py` for auth):
+- `app.py` — main chat page; streams responses token-by-token via `st.write_stream` by calling `POST /chat/` on the FastAPI service; calls `generate_suggestions` after each reply by making a second streaming call; stores history in `st.session_state.messages`
+- `pages/login.py` — login / registration page; calls `auth.users` and `auth.tokens` directly (not through FastAPI); sets `auth_access_token`, `auth_refresh_token`, `auth_user` in session state
+- `pages/upload.py` — Excel ingestion page; calls `ingestion.db` / `ingestion.parser` directly (not through FastAPI); validates → shows row count + date range preview → user clicks "Insert into DB" → inserts into PostgreSQL
+- `pages/analytics.py` — F&O analysis page; calls `POST /analytics/` on FastAPI; shows a spinner while waiting; renders the response with `_word_stream` (word-reveal at 25 ms/word) if results exist, `st.markdown` otherwise; SQL and raw results shown in expanders
 
 `utils/state.py` defines `init_session_state()` — called at the top of every page to ensure all `st.session_state` keys (`messages`, `suggestions`, `analysis_history`) survive Streamlit page navigation without resetting.
 
@@ -66,6 +91,19 @@ Key behaviors:
 - `analytics_agent` receives at most 50 rows of query results (truncated by `_rows_to_text` in `graph.py`) to keep LLM context bounded
 - `validation_node` rejects analyses shorter than 30 chars (`_MIN_CHARS`), lacking numbers, or matching refusal phrases (`_REFUSAL_RE`); sends back to `clarification_agent`
 - The LLM client (`ChatOllama`) is lazily initialized with `lru_cache` — env vars are read at first call, not at import
+
+### Authentication (`auth/`)
+
+All Streamlit pages call `auth.session.require_auth()` at the top, which redirects unauthenticated users to `pages/login.py`.
+
+| Module | Purpose |
+|---|---|
+| `auth/passwords.py` | `hash_password` / `verify_password` via bcrypt; includes timing-attack protection with `_DUMMY_HASH` |
+| `auth/tokens.py` | `create_access_token` (30 min, HS256) / `create_refresh_token` (7 days) / `decode_token`; reads `JWT_SECRET_KEY` at call time |
+| `auth/users.py` | `ensure_users_table`, `create_user`, `authenticate_user`, `get_user_by_id` — all using psycopg2 |
+| `auth/session.py` | `login_user` / `logout_user` / `get_current_user` / `require_auth` — manage `auth_access_token`, `auth_refresh_token`, `auth_user` in `st.session_state`; auto-refreshes expired access tokens using the refresh token |
+
+`utils/state.py`'s `init_session_state()` initialises all auth keys to `None` so they survive Streamlit page navigation.
 
 ### Ingestion Pipeline
 
@@ -119,17 +157,25 @@ After a successful Docker push, CI (`ci.yml`) automatically commits back to `mai
 | `PG_DB` | `chatbot` | PostgreSQL database name |
 | `PG_USER` | `chatbot` | PostgreSQL user |
 | `PG_PASSWORD` | `chatbot123` | PostgreSQL password (dev-only) |
+| `JWT_SECRET_KEY` | _(required — no default)_ | HS256 signing secret; generate with `openssl rand -hex 32` |
+| `API_BASE_URL` | `http://localhost:8000` | FastAPI server URL used by Streamlit pages |
 
 ## Common Commands
 
 ### Local development
 ```powershell
+# Terminal 1 — FastAPI backend (required before starting Streamlit)
+.venv\Scripts\Activate.ps1
+uvicorn api.main:app --reload --port 8000
+# Swagger UI at http://localhost:8000/docs
+
+# Terminal 2 — Streamlit frontend
 .venv\Scripts\Activate.ps1
 streamlit run app.py
 # App is at http://localhost:8501
 ```
 
-`app.py` calls `load_dotenv()` at startup, so a `.env` file in the project root is the easiest way to set `OLLAMA_HOST`, `MODEL_NAME`, or `PG_*` variables for local dev without exporting them to the shell.
+`app.py` calls `load_dotenv()` at startup, so a `.env` file in the project root is the easiest way to set env vars for local dev. `JWT_SECRET_KEY` is required — the app will raise a `RuntimeError` on first login/register if it is missing.
 
 ### Lint and test
 ```powershell

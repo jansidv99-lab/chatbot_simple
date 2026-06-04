@@ -13,3 +13,5 @@
 | 9 | Multi-agent F&O analysis (LangGraph) | ✅ Complete |
 | 10 | Agent pipeline hardening (routing, retry, streaming status) | ✅ Complete |
 | 11 | Date-aware analytics, word-reveal streaming, upload preview | ✅ Complete |
+| 12 | JWT authentication foundation (auth/ module, login page, session management) | ✅ Complete |
+| 13 | FastAPI backend layer (chat SSE, analytics, JWT middleware) | 🚧 In Progress |

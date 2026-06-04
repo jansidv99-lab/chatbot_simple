@@ -1,13 +1,16 @@
+import os
 import time
 
+import httpx
 import pandas as pd
 import streamlit as st
 from opentelemetry import trace as otel_trace
 
-from agents.graph import AnalysisState, graph
 from auth.session import require_auth
 from ingestion.db import get_connection, get_date_ranges, get_row_counts
 from utils.state import init_session_state
+
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 tracer = otel_trace.get_tracer(__name__)
 
@@ -161,32 +164,29 @@ if question := st.chat_input("Ask about your F&O data…"):
     with st.chat_message("user"):
         st.markdown(question)
 
-    initial_state: AnalysisState = {
-        "question": question,
-        "schema_context": "",
-        "sql_query": "",
-        "sql_valid": False,
-        "analytics_valid": False,
-        "validation_error": "",
-        "query_results": [],
-        "data_found": False,
-        "analysis": "",
-        "final_response": "",
-        "retry_count_sql": 0,
-        "retry_count_analysis": 0,
-    }
+    token = st.session_state.get("auth_access_token", "")
 
     with st.chat_message("assistant"):
-        result = dict(initial_state)
+        result = {"final_response": "", "sql_query": "", "query_results": [], "data_found": False}
         with tracer.start_as_current_span("fo_analysis") as agent_span:
             agent_span.set_attribute("openinference.span.kind", "AGENT")
             agent_span.set_attribute("input.value", question)
-            with st.status("Starting…", expanded=True) as status_widget:
-                for chunk in graph.stream(initial_state, stream_mode="updates"):
-                    node_name = next(iter(chunk))
-                    result.update(chunk[node_name])
-                    status_widget.update(label=_NODE_LABELS.get(node_name, f"{node_name}…"))
-                status_widget.update(label="Done", state="complete", expanded=False)
+            try:
+                with st.spinner("Analysing your F&O data…"):
+                    resp = httpx.post(
+                        f"{API_BASE_URL}/analytics/",
+                        json={"question": question},
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=180,
+                    )
+                resp.raise_for_status()
+                result = resp.json()
+            except httpx.HTTPStatusError as e:
+                st.error(f"API error {e.response.status_code}: {e.response.text}")
+                st.stop()
+            except Exception as e:
+                st.error(f"Cannot reach API server at {API_BASE_URL}. Start it with: uvicorn api.main:app --reload\n\n{e}")
+                st.stop()
             agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
 
         if result.get("query_results"):

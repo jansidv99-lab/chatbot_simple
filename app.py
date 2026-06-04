@@ -1,8 +1,8 @@
 import os
-import ollama
 import streamlit as st
 from dotenv import load_dotenv
 from opentelemetry import trace as otel_trace
+import httpx
 
 from auth.session import get_current_user, logout_user, require_auth
 from auth.users import ensure_users_table
@@ -10,8 +10,7 @@ from utils.state import init_session_state
 
 load_dotenv()
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemma4:e2b")
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 PHOENIX_ENDPOINT = os.environ.get("PHOENIX_ENDPOINT", "")
 PHOENIX_PROJECT = os.environ.get("PHOENIX_PROJECT", "chatbot")
 
@@ -19,33 +18,40 @@ if PHOENIX_ENDPOINT:
     @st.cache_resource
     def _init_phoenix():
         from phoenix.otel import register  # noqa: PLC0415
-        from opentelemetry.instrumentation.ollama import OllamaInstrumentor  # noqa: PLC0415
         register(endpoint=PHOENIX_ENDPOINT, project_name=PHOENIX_PROJECT)
-        OllamaInstrumentor().instrument()
 
     _init_phoenix()
 
 tracer = otel_trace.get_tracer(__name__)
-client = ollama.Client(host=OLLAMA_HOST)
 
 
-def stream_response(client, model, messages):
-    stream = client.chat(model=model, messages=messages, stream=True)
-    for chunk in stream:
-        yield chunk["message"]["content"]
+def stream_response(messages: list[dict], token: str):
+    history = messages[:-1]
+    last = messages[-1]["content"]
+    with httpx.Client(timeout=120) as client:
+        with client.stream(
+            "POST",
+            f"{API_BASE_URL}/chat/",
+            json={"message": last, "history": history},
+            headers={"Authorization": f"Bearer {token}"},
+        ) as resp:
+            if resp.status_code != 200:
+                raise ConnectionError(f"API error {resp.status_code}")
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    yield line[6:]
 
 
-def generate_suggestions(client, model, messages):
-    prompt = messages + [{
-        "role": "user",
-        "content": (
-            "Give me 3 short follow-up questions I could ask about this topic. "
-            "Reply with just the questions, one per line, no numbering or bullets."
-        )
-    }]
+def generate_suggestions(messages: list[dict], token: str) -> list[str]:
+    prompt_msg = (
+        "Give me 3 short follow-up questions I could ask about this topic. "
+        "Reply with just the questions, one per line, no numbering or bullets."
+    )
+    all_messages = messages + [{"role": "user", "content": prompt_msg}]
     try:
-        result = client.chat(model=model, messages=prompt, stream=False)
-        lines = result["message"]["content"].strip().splitlines()
+        tokens = list(stream_response(all_messages, token))
+        text = "".join(tokens).strip()
+        lines = text.splitlines()
         return [line.strip() for line in lines if line.strip()][:3]
     except Exception:
         return []
@@ -135,6 +141,8 @@ if prompt := st.chat_input("Message Model..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    token = st.session_state.get("auth_access_token", "")
+
     with st.chat_message("assistant"):
         with tracer.start_as_current_span("chat_turn") as agent_span:
             agent_span.set_attribute("openinference.span.kind", "AGENT")
@@ -142,21 +150,18 @@ if prompt := st.chat_input("Message Model..."):
             try:
                 with tracer.start_as_current_span("stream_response") as chain_span:
                     chain_span.set_attribute("openinference.span.kind", "CHAIN")
-                    response = st.write_stream(stream_response(client, MODEL_NAME, st.session_state.messages))
+                    response = st.write_stream(stream_response(st.session_state.messages, token))
                     chain_span.set_attribute("output.value", response)
 
                 st.session_state.messages.append({"role": "assistant", "content": response})
 
                 with tracer.start_as_current_span("generate_suggestions") as chain_span:
                     chain_span.set_attribute("openinference.span.kind", "CHAIN")
-                    st.session_state.suggestions = generate_suggestions(client, MODEL_NAME, st.session_state.messages)
+                    st.session_state.suggestions = generate_suggestions(st.session_state.messages, token)
 
                 agent_span.set_attribute("output.value", response)
 
-            except ConnectionError:
-                st.error(f"Ollama is not running on {OLLAMA_HOST}. Start it with: ollama serve")
-            except ollama.ResponseError as e:
-                if "not found" in str(e).lower():
-                    st.error(f"Model not found. Pull it with: ollama pull {MODEL_NAME}")
-                else:
-                    st.error(f"Ollama error: {e}")
+            except ConnectionError as e:
+                st.error(f"Cannot reach API server at {API_BASE_URL}. Start it with: uvicorn api.main:app --reload\n\n{e}")
+            except Exception as e:
+                st.error(f"Unexpected error: {e}")
