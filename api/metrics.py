@@ -13,3 +13,13 @@ RATE_LIMIT_HITS = Counter(
     "Total requests rejected by rate limiter",
     ["endpoint"],
 )
+CACHE_HITS = Counter(
+    "chatbot_cache_hits_total",
+    "Cache hits by endpoint",
+    ["endpoint"],
+)
+CACHE_MISSES = Counter(
+    "chatbot_cache_misses_total",
+    "Cache misses by endpoint",
+    ["endpoint"],
+)

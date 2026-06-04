@@ -140,6 +140,23 @@ Node span kinds follow OpenInference conventions: LLM calls → `LLM`, DB/tool c
 
 In-cluster, Phoenix receives traces at `http://phoenix:6006/v1/traces`. Phoenix is toggled via `values.yaml: phoenix.enabled`.
 
+### Rate Limiting (`api/rate_limit.py`)
+
+Redis-backed rate limiters are applied per-user (keyed by `"{endpoint}:{user_sub}"` from the JWT `sub` claim) on three routes:
+
+| Instance | Route | Limit |
+|---|---|---|
+| `chat_limiter` | `POST /chat/` | 20 req / 60 s |
+| `analytics_limiter` | `POST /analytics/` | 5 req / 60 s |
+| `login_limiter` | `POST /auth/login` | 10 req / 60 s |
+
+Two implementations exist: `SlidingWindowRateLimiter` (wired to routes; ZSET-based) and `TokenBucket` (educational only, not wired). Both **fail-open** — a `redis.RedisError` logs a warning and lets the request through rather than blocking it. The TOCTOU non-atomicity is intentional (documented in the class docstring) and acceptable for this scope.
+
+The `/metrics` endpoint is auto-exposed by `prometheus_fastapi_instrumentator` in `api/main.py`. `api/metrics.py` adds three application-level Prometheus counters:
+- `chatbot_chat_requests_total` — incremented after rate-limit passes in `/chat/`
+- `chatbot_analytics_requests_total` — incremented after rate-limit passes in `/analytics/`
+- `chatbot_rate_limit_hits_total{endpoint}` — incremented on every HTTP 429
+
 ### CI Auto-Commit Behavior
 
 After a successful Docker push, CI (`ci.yml`) automatically commits back to `main` updating `helm/chatbot/values.yaml` with the new image SHA tag. Commits from `github-actions[bot]` with `[skip ci]` in the message are this auto-update — not human changes.
@@ -192,6 +209,7 @@ pytest tests/test_graph.py -v                         # unit tests for _check_an
 > **Test isolation:**
 > - `test_chat.py`, `test_graph.py` — fully isolated; mock all I/O; no real services needed
 > - `test_auth.py` — fully isolated; `os.environ.setdefault("JWT_SECRET_KEY", ...)` at module top means the env var is not required when running tests
+> - `test_rate_limit.py`, `test_metrics.py` — fully isolated; use `fakeredis` instead of real Redis; no external services needed
 > - `test_ingestion.py` — requires three real fixture files (paths hardcoded):
 >   - `raw_data_files/daily_poistions/positions.xlsx` — "poistions" is an intentional typo; don't rename
 >   - `raw_data_files/daily_pl/pnl.xlsx`
@@ -293,7 +311,7 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 ## Development Phases
 
-Track overall status in `PROGRESS.md`. Completed: Modules 1–12. Next: **Module 13 — Observability** (Prometheus metrics + Grafana dashboards).
+Track overall status in `PROGRESS.md`. All 15 modules complete (chat UI → CI → Helm/K8s → ArgoCD → testing → suggestions → Phoenix → ingestion → LangGraph agents → hardening → date-aware analytics → JWT auth → FastAPI backend → rate limiting + Prometheus metrics → semantic response caching).
 
 ## Planning Conventions
 

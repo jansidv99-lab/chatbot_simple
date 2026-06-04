@@ -16,3 +16,4 @@
 | 12 | JWT authentication foundation (auth/ module, login page, session management) | ✅ Complete |
 | 13 | FastAPI backend layer (chat SSE, analytics, JWT middleware) | ✅ Complete |
 | 14 | Rate Limiting (Redis sliding window + token bucket, per-user & per-IP) | ✅ Complete |
+| 15 | Semantic Response Caching to Reduce LLM Load (Ollama embeddings + cosine similarity, Redis-backed) | ✅ Complete |

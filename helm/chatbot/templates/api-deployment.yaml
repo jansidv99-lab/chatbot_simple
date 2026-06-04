@@ -47,6 +47,10 @@ spec:
             {{- end }}
             - name: JWT_SECRET_KEY
               value: {{ .Values.auth.jwtSecretKey | quote }}
+            - name: EMBED_MODEL
+              value: {{ .Values.cache.embedModel | default "nomic-embed-text" | quote }}
+            - name: CACHE_SIM_THRESHOLD
+              value: {{ .Values.cache.simThreshold | default "0.90" | quote }}
             {{- if .Values.redis.enabled }}
             - name: REDIS_HOST
               value: "redis"

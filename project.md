@@ -243,3 +243,8 @@ App Logs
 Loki
  ↓
 Grafana
+
+## Module 15 -  Semantic Response Caching to Reduce LLM Load  
+
+
+## Module 16 - LLM evaluation frameworks - golden datasets, automated evals
