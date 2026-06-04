@@ -311,7 +311,7 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 ## Development Phases
 
-Track overall status in `PROGRESS.md`. All 15 modules complete (chat UI → CI → Helm/K8s → ArgoCD → testing → suggestions → Phoenix → ingestion → LangGraph agents → hardening → date-aware analytics → JWT auth → FastAPI backend → rate limiting + Prometheus metrics → semantic response caching).
+Track overall status in `PROGRESS.md`. All 16 modules complete (chat UI → CI → Helm/K8s → ArgoCD → testing → suggestions → Phoenix → ingestion → LangGraph agents → hardening → date-aware analytics → JWT auth → FastAPI backend → rate limiting + Prometheus metrics → semantic response caching → LLM eval framework).
 
 ## Planning Conventions
 
