@@ -2,7 +2,7 @@
 
 The analytics agent is a LangGraph `StateGraph` defined in `agents/graph.py`. It takes a natural-language question about Zerodha F&O trading data, generates and validates a SQL query, executes it against PostgreSQL, and produces a markdown answer.
 
-Entry point: `pages/analytics.py` calls `graph.invoke(initial_state)`.
+Entry point: `pages/analytics.py` calls `graph.stream(initial_state, stream_mode="updates")`, iterating over node-level updates to drive the `st.status` progress display.
 
 ---
 
@@ -12,38 +12,40 @@ All nodes read from and write to `AnalysisState`, a `TypedDict` passed through t
 
 ```python
 class AnalysisState(TypedDict):
-    question:         str          # original user question — never mutated
-    schema_context:   str          # table schema string built by schema_agent
-    sql_query:        str          # current SQL (rewritten on each clarification)
-    sql_valid:        bool         # set by sql_validator
-    analytics_valid:  bool         # set by validation_node
-    validation_error: str          # human-readable error for clarification_agent
-    query_results:    list[dict]   # rows returned by execute_sql
-    data_found:       bool         # True if query_results is non-empty
-    analysis:         str          # markdown answer written by analytics_agent
-    final_response:   str          # final string surfaced to the UI
-    retry_count:      int          # incremented by clarification_agent; max 3
+    question:              str          # original user question — never mutated
+    schema_context:        str          # table schema string built by schema_agent
+    sql_query:             str          # current SQL (rewritten on each clarification)
+    sql_valid:             bool         # set by sql_validator
+    analytics_valid:       bool         # set by validation_node
+    validation_error:      str          # human-readable error for clarification_agent
+    query_results:         list[dict]   # rows returned by execute_sql
+    data_found:            bool         # True if query_results is non-empty
+    analysis:              str          # markdown answer written by analytics_agent
+    final_response:        str          # final string surfaced to the UI
+    retry_count_sql:       int          # incremented by clarification_agent; SQL retries cap at 3
+    retry_count_analysis:  int          # incremented by analytics_agent; analysis retries cap at 3
 ```
 
-Every node returns `{**state, <changed keys>}` — nodes only write the fields they own.
+The two retry counters are independent: SQL failures and analysis failures each have their own budget of 3. Every node returns `{**state, <changed keys>}` — nodes only write the fields they own.
 
 ---
 
 ## Graph
 
 ```
-supervisor
+supervisor ──(YES or ambiguous)──► schema_agent
     │
-    ▼ (always — denial routing currently disabled)
+    └─(non-YES response)──► END   (early exit with denial message)
+
 schema_agent
     │
     ▼
 sql_planner
     │
     ▼
-sql_validator ──(invalid)──► clarification_agent ──(retry < 3)──► sql_validator
+sql_validator ──(invalid)──► clarification_agent ──(retry_count_sql < 3)──► sql_validator
     │                                │
-    │                         (retry ≥ 3)
+    │                    (retry_count_sql ≥ 3)
     │                                │
     ▼ (valid)                        ▼
 execute_sql ──(no rows)──────────────┘
@@ -52,9 +54,9 @@ execute_sql ──(no rows)──────────────┘
 analytics_agent
     │
     ▼
-validation_node ──(fail, retry < 3)──► clarification_agent
+validation_node ──(fail, retry_count_analysis < 3)──► analytics_agent
     │
-    ▼ (pass, or retry ≥ 3)
+    ▼ (pass, or retry_count_analysis ≥ 3)
 response_formatter
     │
     ▼
@@ -69,11 +71,9 @@ END
 
 **Kind:** `LLM`  
 **Reads:** `question`  
-**Writes:** `final_response` (always `""` — routing currently disabled)
+**Writes:** `final_response`
 
-Asks the LLM whether the question is answerable from the four F&O tables. The YES/NO result is currently ignored — `_route_supervisor` always routes to `schema_agent`. The node still runs so the classification appears in Phoenix traces.
-
-To re-enable denial routing: in `supervisor()`, restore the commented-out return block and update `_route_supervisor` to check `state.get("final_response")`.
+Asks the LLM whether the question is answerable from the four F&O tables. If the response contains `"YES"`, `final_response` is set to `""` (falsy) and `_route_supervisor` continues to `schema_agent`. If the response does not contain `"YES"`, `final_response` is set to a denial message and `_route_supervisor` routes directly to `END` — the rest of the pipeline is skipped.
 
 ---
 
@@ -145,24 +145,24 @@ On exception (e.g., a race condition where the table was dropped between validat
 ### `clarification_agent`
 
 **Kind:** `LLM`  
-**Reads:** `schema_context`, `question`, `sql_query`, `validation_error`, `retry_count`  
-**Writes:** `sql_query`, `retry_count`, `sql_valid` (reset to `False`), `validation_error` (cleared)
+**Reads:** `schema_context`, `question`, `sql_query`, `validation_error`, `retry_count_sql`  
+**Writes:** `sql_query`, `retry_count_sql`, `sql_valid` (reset to `False`), `validation_error` (cleared)
 
-Attempts to fix the SQL by passing the previous query and the error message back to the LLM. Increments `retry_count` on every call. When `retry_count` reaches 3, `_route_clarification` short-circuits to `response_formatter` with a failure message.
+Attempts to fix the SQL by passing the previous query and the error message back to the LLM. Increments `retry_count_sql` on every call. When `retry_count_sql` reaches 3, `_route_clarification` short-circuits to `response_formatter` with a failure message.
 
 The error message comes from either:
 - `validation_error` set by `sql_validator` or `execute_sql` (syntax error, no rows, etc.)
-- `validation_error` set by `validation_node` ("Analysis is too vague or missing numbers")
+- `validation_error` set by `validation_node` (if the analysis fails — though `validation_node` failure re-routes to `analytics_agent`, not back here)
 
 ---
 
 ### `analytics_agent`
 
 **Kind:** `LLM`  
-**Reads:** `question`, `query_results`  
-**Writes:** `analysis`
+**Reads:** `question`, `query_results`, `retry_count_analysis`, `validation_error`  
+**Writes:** `analysis`, `retry_count_analysis`
 
-Converts `query_results` to a pipe-delimited text table via `_rows_to_text()` (capped at 50 displayed rows; remainder noted in the output). Asks the LLM to analyse the data and write a markdown answer with specific numbers.
+Converts `query_results` to a pipe-delimited text table via `_rows_to_text()` (capped at 50 displayed rows; remainder noted in the output). Asks the LLM to analyse the data and write a markdown answer with specific numbers. On retry (when `retry_count_analysis > 1`), appends the prior rejection reason from `validation_error` to the prompt so the model knows what to fix.
 
 ---
 
@@ -172,11 +172,12 @@ Converts `query_results` to a pipe-delimited text table via `_rows_to_text()` (c
 **Reads:** `analysis`  
 **Writes:** `analytics_valid`, (on failure) `validation_error`
 
-Heuristic quality gate:
-- `has_content`: `len(analysis) > 5`
-- `has_numbers`: regex `\d[\d.,]+` matches at least once
+Heuristic quality gate implemented by `_check_analysis()` in `graph.py`. Three failure conditions (checked in order):
+- `len(analysis) < 30` (`_MIN_CHARS`) — analysis too short
+- `_REFUSAL_RE` matches — analysis contains a refusal phrase (e.g. "cannot", "no data", "sorry", "unable to")
+- `_QUANTITY_RE` does not match — analysis contains no numbers at all
 
-Both must be true to pass. If the analysis is too short or has no numbers, it's sent back to `clarification_agent` (which will try to generate better SQL and re-run the analysis). This shares the `retry_count` counter with SQL retries.
+All three must pass for `analytics_valid: True`. On failure, `validation_error` is set to the specific rejection reason and `_route_validation` re-routes to `analytics_agent` (up to 3 times via `retry_count_analysis`), then gives up and goes to `response_formatter`.
 
 ---
 
@@ -194,11 +195,17 @@ If `analysis` is non-empty, it becomes `final_response`. Otherwise returns a sta
 
 | Function | Condition | Routes to |
 |---|---|---|
-| `_route_supervisor` | `final_response` is empty (always) | `schema_agent` |
-| `_route_validator` | `sql_valid` | `execute_sql` or `clarification_agent` |
-| `_route_execute` | `data_found` | `analytics_agent` or `clarification_agent` |
-| `_route_clarification` | `retry_count < 3` | `sql_validator` or `response_formatter` |
-| `_route_validation` | `analytics_valid` and `retry_count` | `response_formatter` or `clarification_agent` |
+| `_route_supervisor` | `final_response` is falsy (YES response) | `schema_agent` |
+| `_route_supervisor` | `final_response` is truthy (non-YES response) | `END` |
+| `_route_validator` | `sql_valid: True` | `execute_sql` |
+| `_route_validator` | `sql_valid: False` | `clarification_agent` |
+| `_route_execute` | `data_found: True` | `analytics_agent` |
+| `_route_execute` | `data_found: False` | `clarification_agent` |
+| `_route_clarification` | `retry_count_sql < 3` | `sql_validator` |
+| `_route_clarification` | `retry_count_sql >= 3` | `response_formatter` |
+| `_route_validation` | `analytics_valid: True` | `response_formatter` |
+| `_route_validation` | `analytics_valid: False` and `retry_count_analysis < 3` | `analytics_agent` |
+| `_route_validation` | `analytics_valid: False` and `retry_count_analysis >= 3` | `response_formatter` |
 
 ---
 
@@ -232,7 +239,7 @@ with tracer.start_as_current_span("node_name") as span:
     span.set_attribute("output.value", ...)
 ```
 
-The outer `fo_analysis` span is set in `pages/analytics.py`, wrapping the entire `graph.invoke()` call. In Phoenix, you'll see a tree like:
+The outer `fo_analysis` span is set in `pages/analytics.py`, wrapping the entire `graph.stream()` call. In Phoenix, you'll see a tree like:
 
 ```
 fo_analysis (AGENT)
@@ -282,7 +289,8 @@ Nodes that aren't reached (e.g., `clarification_agent` on a first-pass success) 
 
 ## Known Behaviors
 
-- **Supervisor is a no-op router.** The LLM runs and its response is recorded in the Phoenix trace, but routing ignores it. Every question proceeds to `schema_agent`.
-- **`retry_count` is shared** between SQL validation retries and analytics validation retries. A question that fails SQL validation twice and analytics validation once will exhaust all 3 retries.
+- **Supervisor denial routing is active.** If the LLM does not reply with a "YES"-containing string, the graph exits immediately with a denial message. Off-topic questions never reach `schema_agent`.
+- **Two independent retry budgets.** `retry_count_sql` (SQL generation failures) and `retry_count_analysis` (analysis quality failures) are tracked separately — each caps at 3. A question can fail SQL twice and analysis twice and still succeed, because the counters don't share a budget.
 - **`_rows_to_text` caps at 50 rows.** The analytics LLM prompt only sees the first 50 rows even if `execute_sql` returned up to 500. The full result set is stored in `query_results` and displayed in the UI expander.
+- **Validation failure re-routes to `analytics_agent`, not `clarification_agent`.** When `validation_node` rejects an analysis, it sends the feedback via `validation_error` back to `analytics_agent` (not to `clarification_agent`). The SQL is not re-run — only the interpretation step is retried.
 - **`emptyDir` postgres.** If the postgres pod restarts, `schema_agent` will return an empty schema (no tables), and `sql_planner` will generate a query against tables that don't exist, which `sql_validator` will immediately reject.

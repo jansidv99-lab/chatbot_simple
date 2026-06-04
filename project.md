@@ -150,3 +150,38 @@ Response       │
  ▼             │
 END      ◄─────┘
 
+
+
+## phase 2 completed
+
+## phase 3  - prodcution grade layers implementation - User Management,API Gateway,Rate Limiting,RBAC,Audit Logs
+
+### Module 10 - Authentication Foundation
+
+Goal:
+
+User
+ ↓
+Login
+ ↓
+JWT Token
+ ↓
+Protected APIs
+
+Topics:
+
+Authentication vs Authorization
+Password Hashing
+JWT
+Access Token
+Refresh Token
+Session Management
+User Table Design
+
+Deliverables:
+
+users table
+login API
+register API
+JWT generation
+JWT validation

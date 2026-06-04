@@ -4,6 +4,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from opentelemetry import trace as otel_trace
 
+from auth.session import get_current_user, logout_user, require_auth
+from auth.users import ensure_users_table
 from utils.state import init_session_state
 
 load_dotenv()
@@ -50,6 +52,11 @@ def generate_suggestions(client, model, messages):
 
 
 init_session_state()
+try:
+    ensure_users_table()
+except Exception:
+    pass
+require_auth()
 
 st.markdown("""
 <style>
@@ -101,6 +108,12 @@ h1 {
 st.title("Chatbot")
 
 with st.sidebar:
+    user = get_current_user()
+    if user:
+        st.markdown(f"Signed in as **{user['username']}**")
+        if st.button("Logout"):
+            logout_user()
+
     if st.button("Clear conversation"):
         st.session_state.messages = []
         st.session_state.suggestions = []

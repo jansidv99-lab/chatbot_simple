@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+from auth.session import require_auth
 from utils.state import init_session_state
 from ingestion.db import (
     ensure_schema,
@@ -24,6 +25,7 @@ st.set_page_config(page_title="Upload Data", page_icon="📤")
 st.title("Upload Data")
 
 init_session_state()
+require_auth()
 
 # ── Database ─────────────────────────────────────────────────────────────────
 

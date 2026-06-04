@@ -43,6 +43,8 @@ spec:
             - name: PG_PASSWORD
               value: {{ .Values.postgres.password | quote }}
             {{- end }}
+            - name: JWT_SECRET_KEY
+              value: {{ .Values.auth.jwtSecretKey | quote }}
           livenessProbe:
             httpGet:
               path: /_stcore/health

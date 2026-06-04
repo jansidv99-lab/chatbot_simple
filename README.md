@@ -113,7 +113,7 @@ App at `http://localhost:8501`. Ollama must be running on the Windows host (`oll
 ```yaml
 ollama:
   host: http://host.docker.internal:11434
-  model: lfm2.5-thinking:latest
+  model: qwen3:1.7b
 
 phoenix:
   enabled: true   # set false to disable tracing
@@ -251,7 +251,8 @@ pytest tests/ -v
 | Test file | Covers |
 |---|---|
 | `tests/test_chat.py` | `stream_response()` and `generate_suggestions()` — Ollama mocked |
-| `tests/test_ingestion.py` | Parser validation, Excel parsing, DB insert logic — DB mocked |
+| `tests/test_graph.py` | `_check_analysis()` validation heuristics — no external deps |
+| `tests/test_ingestion.py` | Parser validation, Excel parsing, DB insert logic — requires real fixture files |
 
 ---
 
@@ -261,9 +262,14 @@ pytest tests/ -v
 app.py                        # main chat page (streaming, suggestions, tracing)
 pages/
   upload.py                   # data ingestion UI (bulk upload + per-table sections)
+  analytics.py                # F&O analysis UI — calls LangGraph, word-stream rendering
+agents/
+  graph.py                    # LangGraph pipeline: supervisor → SQL planner → executor → analyzer
 ingestion/
   parser.py                   # validate + parse positions, pnl, tradebook Excel files
   db.py                       # schema creation, insert functions, list_tables
+utils/
+  state.py                    # init_session_state() — shared Streamlit session defaults
 requirements.txt
 Dockerfile                    # python:3.11-slim
 helm/chatbot/
@@ -281,6 +287,7 @@ argocd/
 tests/
   test_chat.py
   test_ingestion.py
+  test_graph.py               # unit tests for _check_analysis validation logic
 raw_data_files/               # sample Zerodha Excel files (gitignored in production)
   daily_poistions/positions.xlsx
   daily_pl/pnl.xlsx

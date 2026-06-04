@@ -4,9 +4,13 @@ import streamlit as st
 # All session state keys used across the app, with their defaults.
 # Imported and called at the top of every page so keys survive navigation.
 _DEFAULTS: dict = {
-    "messages":         [],   # chat page: conversation history
-    "suggestions":      [],   # chat page: follow-up questions
-    "analysis_history": [],   # analytics page: Q&A history
+    "messages":          [],    # chat page: conversation history
+    "suggestions":       [],    # chat page: follow-up questions
+    "analysis_history":  [],    # analytics page: Q&A history
+    # auth — managed by auth/session.py
+    "auth_access_token":  None,
+    "auth_refresh_token": None,
+    "auth_user":          None,
 }
 
 

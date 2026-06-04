@@ -164,10 +164,10 @@ Without these files, `test_ingestion.py` will fail to open them. The chat tests 
 ## Linting
 
 ```powershell
-ruff check app.py pages/ ingestion/ agents/
+ruff check app.py pages/ ingestion/
 ```
 
-CI runs the same command. Fix all warnings before pushing.
+CI runs the same command (note: `agents/` is intentionally excluded from CI lint). Fix all warnings before pushing.
 
 ---
 

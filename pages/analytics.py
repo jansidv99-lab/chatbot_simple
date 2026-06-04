@@ -5,6 +5,7 @@ import streamlit as st
 from opentelemetry import trace as otel_trace
 
 from agents.graph import AnalysisState, graph
+from auth.session import require_auth
 from ingestion.db import get_connection, get_date_ranges, get_row_counts
 from utils.state import init_session_state
 
@@ -26,6 +27,7 @@ st.set_page_config(page_title="F&O Analysis", page_icon="📊")
 st.title("F&O Analysis")
 
 init_session_state()
+require_auth()
 
 # ── DB readiness check ────────────────────────────────────────────────────────
 

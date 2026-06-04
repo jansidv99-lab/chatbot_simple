@@ -11,7 +11,7 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 | Layer | Choice |
 |---|---|
 | Frontend UI | Streamlit (multi-page: `app.py` + `pages/`) |
-| LLM Model | `lfm2.5-thinking:latest` (default in Helm); `gemma4:e2b` (default local) |
+| LLM Model | `qwen3:1.7b` (default in Helm `values.yaml`); `gemma4:e2b` (default local) |
 | LLM Serving | Ollama (runs on Windows host, NOT in the cluster) |
 | Agent Framework | LangGraph (`agents/graph.py`) + LangChain-Ollama |
 | Containerization | Docker |
@@ -30,7 +30,7 @@ A Streamlit chatbot UI connected to a locally-served LLM (Ollama) via streaming 
 Three pages auto-discovered by Streamlit:
 - `app.py` — main chat page; creates an `ollama.Client` at startup, streams responses token-by-token via `st.write_stream`, stores history in `st.session_state.messages`, calls `generate_suggestions` after each reply to populate 3 follow-up questions in the sidebar
 - `pages/upload.py` — Excel ingestion page; validates → parses → inserts into PostgreSQL; schema must be created manually via the "Create Tables in DB" button before first use
-- `pages/analytics.py` — F&O analysis page; accepts natural-language questions, invokes the LangGraph agent pipeline in `agents/graph.py`, and renders the final answer with expandable SQL and raw results
+- `pages/analytics.py` — F&O analysis page; accepts natural-language questions, invokes the LangGraph agent pipeline in `agents/graph.py`, and renders the final answer with expandable SQL and raw results. The sidebar shows row counts and date coverage fetched with `@st.cache_data(ttl=30)` — a "Refresh" button clears the cache. When query results exist, the response is rendered with `_word_stream` (word-reveal at 25 ms/word); otherwise falls back to `st.markdown`. Each graph node update is surfaced via `st.status` with human-readable labels from `_NODE_LABELS`.
 
 `utils/state.py` defines `init_session_state()` — called at the top of every page to ensure all `st.session_state` keys (`messages`, `suggestions`, `analysis_history`) survive Streamlit page navigation without resetting.
 
@@ -58,7 +58,7 @@ supervisor ──────────► schema_agent ──► sql_planner 
 ```
 
 Key behaviors:
-- `supervisor` asks the LLM whether the question is answerable from Zerodha F&O tables; the YES/NO denial routing is currently disabled — supervisor always continues to `schema_agent`
+- `supervisor` asks the LLM whether the question is answerable from Zerodha F&O tables; if the response does not contain "YES", `final_response` is set immediately and `_route_supervisor` routes to `END`, short-circuiting the rest of the pipeline
 - `schema_agent` fetches live column schema via `get_table_schemas`; falls back to static `_TABLE_DESCRIPTIONS` strings in `graph.py` if the DB is unreachable
 - `sql_planner` adds `LIMIT 500` for row-level queries; aggregations (GROUP BY) may omit it; SQL is extracted from fenced code blocks via regex
 - `sql_validator` runs `EXPLAIN` (read-only) against PostgreSQL to catch syntax errors; only SELECT queries are permitted
@@ -129,6 +129,8 @@ streamlit run app.py
 # App is at http://localhost:8501
 ```
 
+`app.py` calls `load_dotenv()` at startup, so a `.env` file in the project root is the easiest way to set `OLLAMA_HOST`, `MODEL_NAME`, or `PG_*` variables for local dev without exporting them to the shell.
+
 ### Lint and test
 ```powershell
 .venv\Scripts\Activate.ps1
@@ -172,8 +174,8 @@ kubectl logs deployment/chatbot-chatbot  # Check for errors
 ### Ollama (must be running before the app starts)
 ```powershell
 ollama serve
-ollama pull gemma4:e2b       # for local dev
-ollama pull lfm2.5-thinking  # for k8s (matches values.yaml)
+ollama pull gemma4:e2b    # for local dev
+ollama pull qwen3:1.7b   # for k8s (matches helm/chatbot/values.yaml)
 ```
 
 ### Phoenix Observability
