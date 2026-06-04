@@ -18,3 +18,4 @@
 | 14 | Rate Limiting (Redis sliding window + token bucket, per-user & per-IP) | ✅ Complete |
 | 15 | Semantic Response Caching to Reduce LLM Load (Ollama embeddings + cosine similarity, Redis-backed) | ✅ Complete |
 | 16 | LLM Evaluation Framework (golden dataset, Ollama-as-judge, PostgreSQL run history, Streamlit eval page) | ✅ Complete |
+| 17 | A/B Testing — Model Comparison (run same dataset on two models, side-by-side score comparison, per-question winner) | ✅ Complete |

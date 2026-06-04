@@ -274,3 +274,31 @@ evals/runner.py — end-to-end eval runner; runnable via python -m evals.runner
 evals/db.py — eval_runs + eval_results schema; save/list/fetch
 pages/evals.py — Streamlit page with run history, Run Evals button, per-question drill-down
 tests/test_evals.py — 5 isolated unit tests (mocked graph + judge)
+
+## Module 17 - A/B Testing — Model Comparison
+
+Goal:
+
+Golden Dataset (20 F&O questions)
+ ↓
+Run A (Model A) + Run B (Model B)  ← same dataset, different Ollama models
+ ↓
+Ollama-as-Judge (scores both independently)
+ ↓
+PostgreSQL (eval_runs stores model_name per run)
+ ↓
+A/B Comparison Page (side-by-side metrics + per-question winner)
+
+Topics:
+A/B evaluation methodology
+LLM model comparison at the task level
+Judge decoupling (JUDGE_MODEL vs MODEL_NAME)
+Process-level env var override for model switching
+
+Deliverables:
+evals/judge.py — MODIFIED: _get_judge_llm(model) replaces shared _get_llm; uses JUDGE_MODEL env var
+evals/runner.py — MODIFIED: run_evals(dataset, model_name=None); clears lru_cache on model switch
+evals/ab_compare.py — compare_runs() aligns two runs by question_id; QuestionComparison.winner
+pages/evals.py — MODIFIED: model text input added to Run Evals section
+pages/ab_test.py — Streamlit A/B page with aggregate metrics table + per-question breakdown
+tests/test_ab_compare.py — 4 isolated unit tests for compare_runs()

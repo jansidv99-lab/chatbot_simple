@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 import streamlit as st
 
@@ -47,11 +49,16 @@ st.divider()
 # ── Run evals ─────────────────────────────────────────────────────────────────
 
 st.subheader("Run Evaluation")
+model_input = st.text_input(
+    "Model name",
+    value=os.environ.get("MODEL_NAME", "gemma4:e2b"),
+    help="Ollama model tag — must be pulled locally (e.g. qwen3:1.7b, gemma4:e2b)",
+)
 if st.button("Run Evals", type="primary"):
     with st.spinner("Running evaluations — this may take several minutes..."):
         try:
             dataset = load_dataset()
-            run = run_evals(dataset)
+            run = run_evals(dataset, model_name=model_input or None)
             save_eval_run(run)
             st.success(
                 f"Done. Pass rate: {run.pass_rate:.1%} over {run.total_questions} questions. "

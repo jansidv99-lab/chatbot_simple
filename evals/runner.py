@@ -66,7 +66,12 @@ _EMPTY_STATE: AnalysisState = {
 }
 
 
-def run_evals(dataset: list[dict]) -> EvalRun:
+def run_evals(dataset: list[dict], model_name: str | None = None) -> EvalRun:
+    if model_name is not None:
+        os.environ["MODEL_NAME"] = model_name
+        from agents.graph import _get_llm
+        _get_llm.cache_clear()
+
     run = EvalRun(
         run_id=str(uuid.uuid4()),
         run_at=datetime.now(timezone.utc),
@@ -102,11 +107,13 @@ def run_evals(dataset: list[dict]) -> EvalRun:
 
 
 if __name__ == "__main__":
+    import sys
     from evals.dataset import load_dataset
     from evals.db import ensure_eval_schema, save_eval_run
+    cli_model = sys.argv[1] if len(sys.argv) > 1 else None
     dataset = load_dataset()
-    print(f"Running {len(dataset)} questions...")
-    run = run_evals(dataset)
+    print(f"Running {len(dataset)} questions..." + (f" [{cli_model}]" if cli_model else ""))
+    run = run_evals(dataset, model_name=cli_model)
     print(f"Pass rate: {run.pass_rate:.1%} | Data found: {run.data_found_rate:.1%} | Avg latency: {run.avg_latency_s:.1f}s")
     ensure_eval_schema()
     save_eval_run(run)

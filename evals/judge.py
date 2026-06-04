@@ -1,10 +1,11 @@
+import functools
 import json
+import os
 import re
 from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage
-
-from agents.graph import _get_llm
+from langchain_ollama import ChatOllama
 
 _JUDGE_PROMPT = """\
 You are an evaluation judge for an F&O trading analytics assistant.
@@ -50,7 +51,16 @@ def _extract_scores(text: str) -> dict:
     return {"relevance": 3, "completeness": 3, "groundedness": 3}
 
 
+@functools.lru_cache(maxsize=4)
+def _get_judge_llm(model: str) -> ChatOllama:
+    return ChatOllama(
+        base_url=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+        model=model,
+    )
+
+
 def score(question: str, response: str, query_results: list[dict]) -> JudgeScore:
+    judge_model = os.environ.get("JUDGE_MODEL") or os.environ.get("MODEL_NAME", "gemma4:e2b")
     snippet = str(query_results[:10]) if query_results else "(no results)"
     prompt = _JUDGE_PROMPT.format(
         question=question,
@@ -58,7 +68,7 @@ def score(question: str, response: str, query_results: list[dict]) -> JudgeScore
         results_snippet=snippet[:500],
     )
     try:
-        raw = _get_llm().invoke([HumanMessage(content=prompt)]).content
+        raw = _get_judge_llm(judge_model).invoke([HumanMessage(content=prompt)]).content
         scores = _extract_scores(raw)
     except Exception:
         scores = {"relevance": 3, "completeness": 3, "groundedness": 3}

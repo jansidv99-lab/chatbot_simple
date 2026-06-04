@@ -12,21 +12,21 @@ def _llm_mock(content):
 # ── judge ─────────────────────────────────────────────────────────────────────
 
 def test_judge_passes_good_response():
-    with patch("evals.judge._get_llm", return_value=_llm_mock('{"relevance":5,"completeness":4,"groundedness":5}')):
+    with patch("evals.judge._get_judge_llm", return_value=_llm_mock('{"relevance":5,"completeness":4,"groundedness":5}')):
         from evals.judge import score
         r = score("What is total P&L?", "Total P&L is 12500.", [{"realized_pnl": 12500}])
     assert r.passed is True and r.relevance == 5
 
 
 def test_judge_fails_bad_response():
-    with patch("evals.judge._get_llm", return_value=_llm_mock('{"relevance":1,"completeness":2,"groundedness":1}')):
+    with patch("evals.judge._get_judge_llm", return_value=_llm_mock('{"relevance":1,"completeness":2,"groundedness":1}')):
         from evals.judge import score
         r = score("What is total P&L?", "I don't know.", [])
     assert r.passed is False and r.relevance == 1
 
 
 def test_judge_fails_open_on_parse_error():
-    with patch("evals.judge._get_llm", return_value=_llm_mock("sorry i cannot score this")):
+    with patch("evals.judge._get_judge_llm", return_value=_llm_mock("sorry i cannot score this")):
         from evals.judge import score
         r = score("What is total P&L?", "Some answer.", [])
     assert r.relevance == 3 and r.passed is True
