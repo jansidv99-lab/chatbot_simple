@@ -24,6 +24,10 @@ postgres:
   # dev-only plaintext password; refactor to a Kubernetes Secret in a future module
   password: chatbot123
 
+redis:
+  enabled: true
+  image: redis:7-alpine
+
 auth:
   jwtSecretKey: "change-me-override-in-production"
 

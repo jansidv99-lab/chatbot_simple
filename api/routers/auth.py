@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import Depends
 from pydantic import BaseModel
 
+from api.rate_limit import login_limiter
 from auth.tokens import create_access_token, create_refresh_token
 from auth.users import authenticate_user, create_user
 
@@ -43,7 +43,8 @@ def register(body: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(form: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
+    login_limiter.check(f"login:{request.client.host}")
     user = authenticate_user(form.username, form.password)
     if user is None:
         raise HTTPException(

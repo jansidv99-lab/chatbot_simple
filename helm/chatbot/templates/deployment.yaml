@@ -45,6 +45,12 @@ spec:
             {{- end }}
             - name: JWT_SECRET_KEY
               value: {{ .Values.auth.jwtSecretKey | quote }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /_stcore/health

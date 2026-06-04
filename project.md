@@ -185,3 +185,38 @@ login API
 register API
 JWT generation
 JWT validation
+
+
+### Module 11 - FastAPI Backend Layer
+
+FastAPI Backend Layer
+
+Goal:
+
+Streamlit
+ ↓
+FastAPI
+ ↓
+LangGraph
+
+Topics:
+
+API Design
+Dependency Injection
+Middleware
+Exception Handling
+
+## Module 12 — Rate Limiting
+
+User
+ ↓
+Redis Counter
+ ↓
+Rate Limiter
+ ↓
+API
+
+Topics:
+Token Bucket
+Sliding Window
+Redis

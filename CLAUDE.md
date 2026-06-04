@@ -159,6 +159,8 @@ After a successful Docker push, CI (`ci.yml`) automatically commits back to `mai
 | `PG_PASSWORD` | `chatbot123` | PostgreSQL password (dev-only) |
 | `JWT_SECRET_KEY` | _(required — no default)_ | HS256 signing secret; generate with `openssl rand -hex 32` |
 | `API_BASE_URL` | `http://localhost:8000` | FastAPI server URL used by Streamlit pages |
+| `REDIS_HOST` | `localhost` | Redis server hostname (`redis` in-cluster) |
+| `REDIS_PORT` | `6379` | Redis server port |
 
 ## Common Commands
 
@@ -180,17 +182,25 @@ streamlit run app.py
 ### Lint and test
 ```powershell
 .venv\Scripts\Activate.ps1
-ruff check app.py pages/ ingestion/   # lint (matches CI — agents/ is NOT linted in CI)
+ruff check app.py pages/ ingestion/   # lint (matches CI — agents/ and api/ are NOT linted in CI)
 pytest tests/ -v                       # all tests
 pytest tests/test_chat.py::test_yields_tokens -v      # single chat test
 pytest tests/test_ingestion.py -v                     # ingestion tests (requires real fixture file)
 pytest tests/test_graph.py -v                         # unit tests for _check_analysis validation logic
 ```
 
-> **Note:** `tests/test_ingestion.py` depends on three real fixture files being present (paths are hardcoded):
-> - `raw_data_files/daily_poistions/positions.xlsx` — directory name "poistions" is a typo; don't rename it
-> - `raw_data_files/daily_pl/pnl.xlsx`
-> - `raw_data_files/trade_book/tradebook.xlsx`
+> **Test isolation:**
+> - `test_chat.py`, `test_graph.py` — fully isolated; mock all I/O; no real services needed
+> - `test_auth.py` — fully isolated; `os.environ.setdefault("JWT_SECRET_KEY", ...)` at module top means the env var is not required when running tests
+> - `test_ingestion.py` — requires three real fixture files (paths hardcoded):
+>   - `raw_data_files/daily_poistions/positions.xlsx` — "poistions" is an intentional typo; don't rename
+>   - `raw_data_files/daily_pl/pnl.xlsx`
+>   - `raw_data_files/trade_book/tradebook.xlsx`
+
+### Local Redis (for rate limiting)
+```powershell
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
 
 ### Local PostgreSQL (for upload and analytics pages)
 ```powershell
@@ -203,12 +213,15 @@ docker build -t chatbot-simple .
 docker run -p 8501:8501 -e OLLAMA_HOST=http://host.docker.internal:11434 chatbot-simple
 ```
 
+> **Known gap (post-Module 11):** The `Dockerfile` does not copy `api/`. The Docker image and Kubernetes pod run only Streamlit; the FastAPI backend is local-dev only. Any page that calls `API_BASE_URL` (chat, analytics) will fail in-cluster until `api/` is added to the Dockerfile and wired as a service.
+
 ### Helm / Kubernetes (use helm.exe, not helm)
 ```powershell
 helm.exe lint helm/chatbot                              # Lint
 helm.exe install chatbot helm/chatbot --dry-run --debug # Preview manifests
 helm.exe install chatbot helm/chatbot                   # Deploy
 helm.exe upgrade chatbot helm/chatbot                   # Upgrade after changes
+helm.exe upgrade chatbot helm/chatbot --set auth.jwtSecretKey=<secret>  # Override JWT key (required for real deploys — values.yaml ships with a placeholder)
 helm.exe uninstall chatbot                              # Remove
 
 kubectl get pods                         # Verify pod is Running
@@ -266,7 +279,7 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 ## Development Phases
 
-Track overall status in `PROGRESS.md`.
+Track overall status in `PROGRESS.md`. Completed: Modules 1–11. Next: **Module 12 — Rate Limiting** (Redis token-bucket/sliding-window middleware in front of the FastAPI layer).
 
 ## Planning Conventions
 
