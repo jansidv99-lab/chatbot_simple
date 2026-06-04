@@ -248,3 +248,29 @@ Grafana
 
 
 ## Module 16 - LLM evaluation frameworks - golden datasets, automated evals
+
+Goal:
+
+LangGraph Pipeline
+ ↓
+Golden Dataset (20 F&O questions)
+ ↓
+Ollama-as-Judge (relevance, completeness, groundedness)
+ ↓
+PostgreSQL (eval_runs + eval_results tables)
+ ↓
+Streamlit Evals Page
+
+Topics:
+LLM-as-Judge evaluation pattern
+Golden dataset design (relative questions, no fixed expected values)
+Automated pipeline regression testing
+Eval metrics: pass rate, data found rate, SQL valid rate, avg latency
+
+Deliverables:
+evals/golden_dataset.json — 20 relative F&O analytics questions
+evals/judge.py — Ollama-as-judge scorer (relevance, completeness, groundedness 1-5)
+evals/runner.py — end-to-end eval runner; runnable via python -m evals.runner
+evals/db.py — eval_runs + eval_results schema; save/list/fetch
+pages/evals.py — Streamlit page with run history, Run Evals button, per-question drill-down
+tests/test_evals.py — 5 isolated unit tests (mocked graph + judge)
