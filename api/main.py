@@ -36,6 +36,9 @@ app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(analytics.router, prefix="/analytics")
 
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+Instrumentator(excluded_handlers=["/metrics", "/health"]).instrument(app).expose(app)
+
 
 @app.get("/health")
 def health():

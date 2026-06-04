@@ -28,6 +28,15 @@ redis:
   enabled: true
   image: redis:7-alpine
 
+prometheus:
+  enabled: true
+  image: prom/prometheus:latest
+
+grafana:
+  enabled: true
+  image: grafana/grafana:latest
+  adminPassword: "admin"
+
 auth:
   jwtSecretKey: "change-me-override-in-production"
 

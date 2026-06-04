@@ -251,6 +251,22 @@ kubectl logs deployment/chatbot-phoenix
 helm.exe upgrade chatbot helm/chatbot
 ```
 
+### Prometheus + Grafana (Module 13)
+```powershell
+# Port-forward (each in a dedicated terminal)
+kubectl port-forward svc/prometheus 9090:9090   # UI at http://localhost:9090
+kubectl port-forward svc/grafana    3000:3000   # UI at http://localhost:3000  login: admin / admin
+
+# Local smoke test — verify /metrics endpoint (FastAPI must be running)
+uvicorn api.main:app --reload --port 8000
+# curl http://localhost:8000/metrics  → Prometheus text format
+# After a few chat requests: chatbot_chat_requests_total should appear and increment
+
+# Check pods
+kubectl get pods -l app=prometheus
+kubectl get pods -l app=grafana
+```
+
 ### ArgoCD (one-time install)
 ```powershell
 kubectl create namespace argocd
@@ -279,7 +295,7 @@ argocd.exe app diff chatbot     # diff: Git vs cluster
 
 ## Development Phases
 
-Track overall status in `PROGRESS.md`. Completed: Modules 1–11. Next: **Module 12 — Rate Limiting** (Redis token-bucket/sliding-window middleware in front of the FastAPI layer).
+Track overall status in `PROGRESS.md`. Completed: Modules 1–12. Next: **Module 13 — Observability** (Prometheus metrics + Grafana dashboards).
 
 ## Planning Conventions
 

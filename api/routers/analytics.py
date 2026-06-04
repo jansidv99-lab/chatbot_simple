@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from agents.graph import AnalysisState, graph
 from api.deps import get_current_user
+from api.metrics import ANALYTICS_REQUESTS
 from api.rate_limit import analytics_limiter
 
 router = APIRouter(tags=["analytics"])
@@ -24,6 +25,7 @@ class AnalyticsResponse(BaseModel):
 @router.post("/", response_model=AnalyticsResponse)
 def run_analytics(body: AnalyticsRequest, _user: dict = Depends(get_current_user)):
     analytics_limiter.check(f"analytics:{_user['sub']}")
+    ANALYTICS_REQUESTS.inc()
     initial_state: AnalysisState = {
         "question": body.question,
         "schema_context": "",

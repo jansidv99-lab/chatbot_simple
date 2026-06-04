@@ -220,3 +220,26 @@ Topics:
 Token Bucket
 Sliding Window
 Redis
+
+
+## Module 13 - Observability
+
+Application
+ ↓
+Phoenix
+
+Infrastructure
+ ↓
+Prometheus
+
+Dashboards
+ ↓
+Grafana
+
+## Module 14 - Logging
+
+App Logs
+ ↓
+Loki
+ ↓
+Grafana

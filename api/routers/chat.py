@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from api.deps import get_current_user
+from api.metrics import CHAT_REQUESTS
 from api.rate_limit import chat_limiter
 
 router = APIRouter(tags=["chat"])
@@ -41,6 +42,7 @@ def _token_stream(messages: list[dict]) -> Generator[str, None, None]:
 @router.post("/")
 def chat(body: ChatRequest, _user: dict = Depends(get_current_user)):
     chat_limiter.check(f"chat:{_user['sub']}")
+    CHAT_REQUESTS.inc()
     messages = [{"role": m.role, "content": m.content} for m in body.history]
     messages.append({"role": "user", "content": body.message})
     return StreamingResponse(

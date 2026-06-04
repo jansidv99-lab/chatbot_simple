@@ -6,6 +6,8 @@ import uuid
 import redis
 from fastapi import HTTPException
 
+from api.metrics import RATE_LIMIT_HITS
+
 logger = logging.getLogger(__name__)
 
 _redis_client = redis.Redis(
@@ -38,6 +40,7 @@ class SlidingWindowRateLimiter:
             pipe.zcard(key)
             _, count = pipe.execute()
             if count >= self.limit:
+                RATE_LIMIT_HITS.labels(endpoint=key.split(":")[0]).inc()
                 raise HTTPException(
                     status_code=429,
                     detail="Rate limit exceeded. Please slow down.",
