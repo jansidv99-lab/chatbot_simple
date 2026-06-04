@@ -1,10 +1,14 @@
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from api.routers import analytics, auth, chat
+
+load_dotenv()
 
 
 @asynccontextmanager
@@ -36,7 +40,6 @@ app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(analytics.router, prefix="/analytics")
 
-from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 Instrumentator(excluded_handlers=["/metrics", "/health"]).instrument(app).expose(app)
 
 

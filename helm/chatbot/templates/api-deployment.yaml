@@ -1,25 +1,27 @@
+{{- if .Values.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-chatbot
+  name: {{ .Release.Name }}-api
   labels:
-    app: chatbot
+    app: chatbot-api
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: 1
   selector:
     matchLabels:
-      app: chatbot
+      app: chatbot-api
   template:
     metadata:
       labels:
-        app: chatbot
+        app: chatbot-api
     spec:
       containers:
-        - name: chatbot
+        - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
           ports:
-            - containerPort: 8501
+            - containerPort: 8000
           env:
             - name: OLLAMA_HOST
               value: {{ .Values.ollama.host | quote }}
@@ -45,10 +47,6 @@ spec:
             {{- end }}
             - name: JWT_SECRET_KEY
               value: {{ .Values.auth.jwtSecretKey | quote }}
-            {{- if .Values.api.enabled }}
-            - name: API_BASE_URL
-              value: "http://chatbot-api:8000"
-            {{- end }}
             {{- if .Values.redis.enabled }}
             - name: REDIS_HOST
               value: "redis"
@@ -57,9 +55,10 @@ spec:
             {{- end }}
           livenessProbe:
             httpGet:
-              path: /_stcore/health
-              port: 8501
+              path: /health
+              port: 8000
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

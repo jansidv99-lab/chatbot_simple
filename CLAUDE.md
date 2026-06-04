@@ -213,8 +213,6 @@ docker build -t chatbot-simple .
 docker run -p 8501:8501 -e OLLAMA_HOST=http://host.docker.internal:11434 chatbot-simple
 ```
 
-> **Known gap (post-Module 11):** The `Dockerfile` does not copy `api/`. The Docker image and Kubernetes pod run only Streamlit; the FastAPI backend is local-dev only. Any page that calls `API_BASE_URL` (chat, analytics) will fail in-cluster until `api/` is added to the Dockerfile and wired as a service.
-
 ### Helm / Kubernetes (use helm.exe, not helm)
 ```powershell
 helm.exe lint helm/chatbot                              # Lint
