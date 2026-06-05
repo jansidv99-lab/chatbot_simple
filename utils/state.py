@@ -7,6 +7,7 @@ _DEFAULTS: dict = {
     "messages":          [],    # chat page: conversation history
     "suggestions":       [],    # chat page: follow-up questions
     "analysis_history":  [],    # analytics page: Q&A history
+    "data_chat_history": [],    # data chat page: conversational Q&A history
     # auth — managed by auth/session.py
     "auth_access_token":  None,
     "auth_refresh_token": None,
