@@ -26,6 +26,7 @@ def _get_llm() -> ChatOllama:
     return ChatOllama(
         base_url=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
         model=os.environ.get("MODEL_NAME", "gemma4:e2b"),
+        request_timeout=120.0,
     )
 
 
