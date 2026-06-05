@@ -10,7 +10,7 @@ service:
 ollama:
   host: http://host.docker.internal:11434
   model: qwen3:1.7b
-
+  
 phoenix:
   enabled: true
   image: arizephoenix/phoenix:latest
