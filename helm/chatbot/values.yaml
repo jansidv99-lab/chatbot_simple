@@ -40,6 +40,10 @@ grafana:
   image: grafana/grafana:latest
   adminPassword: "admin"
 
+cache:
+  embedModel: nomic-embed-text
+  simThreshold: "0.90"  
+
 auth:
   jwtSecretKey: "change-me-override-in-production"
 
