@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from api.routers import analytics, auth, chat
+from api.routers import analytics, auth, chat, data_chat
 
 load_dotenv()
 
@@ -39,6 +39,7 @@ async def _unhandled(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(analytics.router, prefix="/analytics")
+app.include_router(data_chat.router, prefix="/data-chat")
 
 Instrumentator(excluded_handlers=["/metrics", "/health"]).instrument(app).expose(app)
 
