@@ -184,8 +184,21 @@ if question := st.chat_input("Ask about your F&O data…"):
             except httpx.HTTPStatusError as e:
                 st.error(f"API error {e.response.status_code}: {e.response.text}")
                 st.stop()
+            except httpx.TimeoutException:
+                st.error(
+                    "The analysis timed out — the LLM took too long to respond.\n\n"
+                    "Try a simpler question, or check that Ollama is running and "
+                    f"the model `{os.environ.get('MODEL_NAME', 'gemma4:e2b')}` is loaded."
+                )
+                st.stop()
+            except httpx.ConnectError:
+                st.error(
+                    f"Cannot connect to the API server at `{API_BASE_URL}`.\n\n"
+                    "If running locally, start it with: `uvicorn api.main:app --reload`"
+                )
+                st.stop()
             except Exception as e:
-                st.error(f"Cannot reach API server at {API_BASE_URL}. Start it with: uvicorn api.main:app --reload\n\n{e}")
+                st.error(f"Unexpected error: {e}")
                 st.stop()
             agent_span.set_attribute("output.value", result.get("final_response", "")[:500])
 
