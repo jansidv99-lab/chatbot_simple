@@ -41,7 +41,7 @@ grafana:
   adminPassword: "admin"
 
 cache:
-  embedModel: nomic-embed-text
+  embedModel: nomic-embed-text:latest
   simThreshold: "0.90"  
 
 auth:
